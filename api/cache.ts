@@ -25,7 +25,7 @@ export class Cache<T> {
     logger.info(`Cache '${name}' initialized with TTL: ${ttlInMs}ms, maxSize: ${maxSize}`);
   }
 
-  // 获取缓存的项目
+  // 获取缓存的项目 - 命中时维护 LRU 顺序
   get(key: string): T | null {
     const now = Date.now();
     const entry = this.cache.get(key);
@@ -41,16 +41,20 @@ export class Cache<T> {
       return null;
     }
 
+    // LRU: 删除并重新插入以更新顺序
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+
     logger.debug(`Cache '${this.name}': Hit for key '${key}'`);
     return entry.data;
   }
 
   // 设置缓存项目
   set(key: string, data: T): void {
-    // 如果达到最大大小，删除最旧的条目
+    // 如果达到最大大小，删除最旧的条目（Map 插入顺序的第一个）
     if (this.cache.size >= this.maxSize) {
-      const oldestKey = this.findOldestEntry();
-      if (oldestKey) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey !== undefined) {
         logger.debug(`Cache '${this.name}': Evicting oldest entry '${oldestKey}' due to size limit`);
         this.cache.delete(oldestKey);
       }
@@ -61,23 +65,6 @@ export class Cache<T> {
       timestamp: Date.now()
     });
     logger.debug(`Cache '${this.name}': Set key '${key}'`);
-  }
-
-  // 查找最旧的条目
-  private findOldestEntry(): string | null {
-    if (this.cache.size === 0) return null;
-
-    let oldestKey: string | null = null;
-    let oldestTime = Infinity;
-
-    for (const [key, entry] of this.cache.entries()) {
-      if (entry.timestamp < oldestTime) {
-        oldestTime = entry.timestamp;
-        oldestKey = key;
-      }
-    }
-
-    return oldestKey;
   }
 
   // 手动清除缓存中的项目

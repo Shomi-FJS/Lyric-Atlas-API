@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { handle } from 'hono/vercel';
 import { cors } from 'hono/cors';
-import { LyricProvider, type SearchResult, searchLyrics, getLyricMetadata, LyricMetadataResult } from './lyricService';
+import { LyricProvider, type SearchResult, getLyricMetadata, LyricMetadataResult } from './lyricService';
 import { getLogger } from './utils';
 import { prettyJSON } from 'hono/pretty-json';
 import { setupCacheCleanup } from './cache';
