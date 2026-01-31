@@ -581,9 +581,10 @@ export async function getLyricMetadata(
   id: string,
   options: {
     logger: BasicLogger;
+    fast?: boolean;
   }
 ): Promise<LyricMetadataResult> {
-  const { logger } = options;
+  const { logger, fast } = options;
   logger.info(`LyricService: Getting metadata for ID: ${id}`);
 
   const TOTAL_TIMEOUT_MS = 6000;
@@ -597,15 +598,27 @@ export async function getLyricMetadata(
     .catch(() => ({ type: 'repo' as const, exists: false }));
 
   // 外部 API 检查任务
-  const externalTask = checkExternalFormatsAvailability(id, logger)
-    .then(result => ({ type: 'external' as const, ...result }))
-    .catch(err => ({
-      type: 'external' as const,
-      formats: [] as LyricFormat[],
-      hasTranslation: false,
-      hasRomaji: false,
-      error: err instanceof Error ? err : new Error(String(err))
-    }));
+  const externalTask = fast
+    ? Promise.resolve({
+        type: 'external' as const,
+        formats: [] as LyricFormat[],
+        hasTranslation: false,
+        hasRomaji: false,
+        error: undefined as Error | undefined,
+      })
+    : checkExternalFormatsAvailability(id, logger)
+        .then(result => ({ type: 'external' as const, ...result }))
+        .catch(err => ({
+          type: 'external' as const,
+          formats: [] as LyricFormat[],
+          hasTranslation: false,
+          hasRomaji: false,
+          error: err instanceof Error ? err : new Error(String(err))
+        }));
+
+  if (fast) {
+    logger.info(`Metadata: Fast mode enabled, skipping external API check.`);
+  }
 
   // 超时 Promise
   const timeoutPromise = new Promise<never>((_, reject) => {

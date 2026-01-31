@@ -127,18 +127,19 @@ app.get('/search', async (c: Context) => {
 // --- API Endpoint: /api/lyrics/meta ---
 app.get('/lyrics/meta', async (c) => {
   const id = c.req.query('id');
-  // EXTERNAL_API_BASE_URL check can remain if desired, or be handled solely by the service
+  const fast = c.req.query('fast') !== undefined;
 
   if (!id) {
     c.status(400);
     return c.json({ found: false, error: 'Missing id parameter' });
   }
 
-  apiLogger.info(`Received metadata request for ID: ${id}`);
+  apiLogger.info(`Received metadata request for ID: ${id}, Fast: ${fast}`);
 
   try {
     const result: LyricMetadataResult = await getLyricMetadata(id, {
-      logger: consoleLoggerShim 
+      logger: consoleLoggerShim,
+      fast,
     });
 
     if (result.found) {
