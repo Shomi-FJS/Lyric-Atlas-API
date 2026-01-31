@@ -15,4 +15,5 @@ export type SearchResult =
 export interface LyricProviderOptions {
   fixedVersion?: string;
   fallback?: string;
+  fast?: boolean;
 }

@@ -74,13 +74,14 @@ app.get('/search', async (c: Context) => {
   const id = c.req.query('id');
   const fallbackQuery = c.req.query('fallback');
   const fixedVersionRaw = c.req.query('fixedVersion');
+  const fast = c.req.query('fast') !== undefined;
 
-  apiLogger.info(`Search request - ID: ${id}, Fixed: ${fixedVersionRaw}, Fallback: ${fallbackQuery}`);
+  apiLogger.info(`Search request - ID: ${id}, Fixed: ${fixedVersionRaw}, Fallback: ${fallbackQuery}, Fast: ${fast}`);
 
   // Call the updated helper function
   const externalApiBaseUrl = getExternalApiBaseUrl(); // No need to pass 'c'
 
-  if (!externalApiBaseUrl) {
+  if (!externalApiBaseUrl && !fast) {
     // Already logged in getExternalApiBaseUrl
     c.status(500);
     return c.json({ found: false, id, error: 'Server configuration error.' });
@@ -99,6 +100,7 @@ app.get('/search', async (c: Context) => {
     const result: SearchResult = await lyricProvider.search(id, {
       fixedVersion: fixedVersionRaw,
       fallback: fallbackQuery,
+      fast,
     });
 
     if (result.found) {

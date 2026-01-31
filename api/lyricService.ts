@@ -54,12 +54,12 @@ export class LyricProvider {
   }
 
   async search(id: string, options: LyricProviderOptions): Promise<SearchResult> {
-    const { fixedVersion: fixedVersionRaw, fallback: fallbackQuery } = options;
+    const { fixedVersion: fixedVersionRaw, fallback: fallbackQuery, fast } = options;
     const fixedVersionQuery = fixedVersionRaw?.toLowerCase();
     logger.info(`LyricProvider: Processing ID: ${id}, fixed: ${fixedVersionQuery}, fallback: ${fallbackQuery}`);
 
     // 先检查缓存
-    const cacheKey = `search:${id}:${fixedVersionQuery || 'none'}:${fallbackQuery || 'none'}`;
+    const cacheKey = `search:${id}:${fixedVersionQuery || 'none'}:${fallbackQuery || 'none'}:${fast ? 'fast' : 'full'}`;
     const cachedResult = lyricsCache.get(cacheKey);
     if (cachedResult) {
       logger.info(`Cache hit for search with ID: ${id}, fixed: ${fixedVersionQuery}, fallback: ${fallbackQuery}`);
@@ -68,7 +68,7 @@ export class LyricProvider {
 
     // 检查固定版本
     if (isValidFormat(fixedVersionQuery)) {
-      const result = await this.handleFixedVersionSearch(id, fixedVersionQuery);
+      const result = await this.handleFixedVersionSearch(id, fixedVersionQuery, fast);
       
       // 缓存结果
       if (result.found) {
@@ -91,7 +91,11 @@ export class LyricProvider {
 
     try {
       const repoTask = this.findAllInRepo(id, fallbackQuery);
-      const externalApiTask = this.findInExternalApi(id);
+      const externalApiTask = fast ? Promise.resolve(null as SearchResult | null) : this.findInExternalApi(id);
+
+      if (fast) {
+        logger.info(`LyricProvider: Fast mode enabled, skipping external API fallback.`);
+      }
 
       // 辅助函数，用于将任务与全局超时控制器竞速
       const raceWithGlobalTimeout = <T>(task: Promise<T>, taskName: string): Promise<T> => {
@@ -241,7 +245,7 @@ export class LyricProvider {
     }
   }
 
-  private async handleFixedVersionSearch(id: string, fixedVersionQuery: LyricFormat): Promise<SearchResult> {
+  private async handleFixedVersionSearch(id: string, fixedVersionQuery: LyricFormat, fast?: boolean): Promise<SearchResult> {
     logger.info(`LyricProvider: Handling fixedVersion request for format: ${fixedVersionQuery}`);
     
     const cacheKey = `fixed:${id}:${fixedVersionQuery}`;
@@ -252,7 +256,7 @@ export class LyricProvider {
     }
 
     // 针对 yrc 和 lrc 格式，并行从仓库和外部API获取
-    if (fixedVersionQuery === 'yrc' || fixedVersionQuery === 'lrc') {
+    if ((fixedVersionQuery === 'yrc' || fixedVersionQuery === 'lrc') && !fast) {
       logger.info(`LyricProvider: Handling fixedVersion ${fixedVersionQuery} with parallel repo/external check.`);
 
       const repoPromise = this.repoFetcher.fetch(id, fixedVersionQuery);
@@ -336,7 +340,7 @@ export class LyricProvider {
       
       return { found: false, id, error: finalErrorMsg, statusCode: finalStatusCode };
 
-    } else { // 对于非 yrc/lrc 格式 (例如 ttml, qrc)，只检查仓库
+    } else { // 对于非 yrc/lrc 格式 (例如 ttml, qrc)，或 fast 模式下，只检查仓库
       logger.info(`LyricProvider: Handling fixedVersion ${fixedVersionQuery} with repo-only check.`);
       try {
         const repoResult = await this.repoFetcher.fetch(id, fixedVersionQuery);
