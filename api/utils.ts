@@ -27,7 +27,7 @@ export const isValidFormat = (format: string | undefined | null): format is Lyri
 
 export const buildRawUrl = (id: string, format: LyricFormat): string => {
   const sanitizedId = encodeURIComponent(id);
-  const baseUrl = 'https://raw.githubusercontent.com/Steve-XMH/amll-ttml-db/main/ncm-lyrics/';
+  const baseUrl = 'https://amlldb.bikonoo.com/ncm-lyrics/';
   return `${baseUrl}${sanitizedId}.${format}`;
 };
 
