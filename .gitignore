@@ -1,6 +1,11 @@
 # dev
 .vercel/
 .yarn/
+
+# local cache
+lyrics-cache/
+lyrics-dev/
+cache-admin-settings.json
 !.yarn/releases
 .vscode/*
 !.vscode/launch.json

@@ -1,75 +1,44 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { handle } from 'hono/vercel';
 import { cors } from 'hono/cors';
-import { LyricProvider, type SearchResult, getLyricMetadata, LyricMetadataResult } from './lyricService';
-import { getLogger } from './utils';
 import { prettyJSON } from 'hono/pretty-json';
-import { setupCacheCleanup } from './cache';
+import { LyricProvider, type SearchResult, getLyricMetadata, LyricMetadataResult } from '../api/lyricService.js';
+import { getLogger } from '../api/utils.js';
+import { setupCacheCleanup } from '../api/cache.js';
 
-// Create a logger instance for the API entrypoint
 const apiLogger = getLogger('API');
 
-// 显式声明Edge Runtime
-export const runtime = 'edge';
-
-// 配置最接近的边缘区域
-export const preferredRegion = 'auto';
-
-// 设置最大并发
-export const config = {
-  runtime: 'edge'
-}
-
-// 启动缓存清理
 setupCacheCleanup();
 
-// --- App Setup ---
-// Remove the Env type parameter from Hono
 const app = new Hono().basePath('/api');
 
-// --- CORS Middleware ---
 app.use('*', cors({
-  origin: '*', // Configure as needed for production
+  origin: '*',
   allowMethods: ['GET', 'OPTIONS'],
 }));
 
 app.use('*', prettyJSON());
 
-
-// --- Helper to get Env Vars and check ---
-// Remove Context type hint related to Env
-// Access environment variable directly using process.env
 function getExternalApiBaseUrl(): string | undefined {
-  // Read directly from process.env provided by Vercel Edge environment
   const url = process?.env?.EXTERNAL_NCM_API_URL;
-
   if (!url) {
-    // Log only once if missing, maybe using a flag or a more robust config check
-    apiLogger.error('Server configuration error: EXTERNAL_NCM_API_URL is not set in Vercel environment.');
+    apiLogger.error('Server configuration error: EXTERNAL_NCM_API_URL is not set.');
   }
   return url;
 }
 
-// Define consoleLoggerShim if it's not already available globally or via import
-// This shim is passed to the lyric service functions.
 const consoleLoggerShim = {
-    info: (...args: any[]) => apiLogger.info(...args),
-    warn: (...args: any[]) => apiLogger.warn(...args),
-    error: (...args: any[]) => apiLogger.error(...args),
-    debug: (...args: any[]) => apiLogger.debug(...args),
-    // Ensure this structure matches the BasicLogger interface expected by your lyricService
+  info: (...args: any[]) => apiLogger.info(...args),
+  warn: (...args: any[]) => apiLogger.warn(...args),
+  error: (...args: any[]) => apiLogger.error(...args),
+  debug: (...args: any[]) => apiLogger.debug(...args),
 };
 
-// --- Routes ---
-
 app.get('/', (c) => {
-  apiLogger.info('Root endpoint accessed.'); // Use apiLogger
-  return c.json({ message: 'Lyric Atlas API is running.' }); // Updated message
+  apiLogger.info('Root endpoint accessed.');
+  return c.json({ message: 'Lyric Atlas API is running.' });
 });
 
-// Search route using LyricProvider
-// Remove Context type hint related to Env
 app.get('/search', async (c: Context) => {
   const id = c.req.query('id');
   const fallbackQuery = c.req.query('fallback');
@@ -78,11 +47,9 @@ app.get('/search', async (c: Context) => {
 
   apiLogger.info(`Search request - ID: ${id}, Fixed: ${fixedVersionRaw}, Fallback: ${fallbackQuery}, Fast: ${fast}`);
 
-  // Call the updated helper function
-  const externalApiBaseUrl = getExternalApiBaseUrl(); // No need to pass 'c'
+  const externalApiBaseUrl = getExternalApiBaseUrl();
 
   if (!externalApiBaseUrl && !fast) {
-    // Already logged in getExternalApiBaseUrl
     c.status(500);
     return c.json({ found: false, id, error: 'Server configuration error.' });
   }
@@ -94,7 +61,6 @@ app.get('/search', async (c: Context) => {
   }
 
   try {
-    // Instantiate LyricProvider within the request
     const lyricProvider = new LyricProvider(externalApiBaseUrl);
 
     const result: SearchResult = await lyricProvider.search(id, {
@@ -110,7 +76,6 @@ app.get('/search', async (c: Context) => {
       return c.json(result);
     } else {
       const statusCode = result.statusCode || 404;
-      // Type assertion needed because Hono expects specific literal types for status codes
       c.status(statusCode as any);
       apiLogger.info(`Lyrics not found for ID: ${id} - Status: ${statusCode}, Error: ${result.error}`);
       return c.json(result);
@@ -124,7 +89,6 @@ app.get('/search', async (c: Context) => {
   }
 });
 
-// --- API Endpoint: /api/lyrics/meta ---
 app.get('/lyrics/meta', async (c) => {
   const id = c.req.query('id');
   const fast = c.req.query('fast') !== undefined;
@@ -148,7 +112,7 @@ app.get('/lyrics/meta', async (c) => {
     } else {
       const statusCode = result.statusCode || 404;
       apiLogger.warn(`Metadata not found or error for ID: ${id}. Status: ${statusCode}, Error: ${result.error}`);
-      c.status(statusCode as any); 
+      c.status(statusCode as any);
       return c.json(result);
     }
 
@@ -196,5 +160,4 @@ app.get('/ncm-lyrics/:id', async (c) => {
   }
 });
 
-// --- Export for Vercel ---
-export default handle(app)
+export default app;

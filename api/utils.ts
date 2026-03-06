@@ -31,6 +31,11 @@ export const buildRawUrl = (id: string, format: LyricFormat): string => {
   return `${baseUrl}${sanitizedId}.${format}`;
 };
 
+export const buildUserLyricUrl = (id: string): string => {
+  const sanitizedId = encodeURIComponent(id);
+  return `https://raw.githubusercontent.com/Shomi-FJS/amll-ttml-db/main/user-lyrics/${sanitizedId}.ttml`;
+};
+
 // buildExternalApiUrl now relies on EXTERNAL_API_BASE_URL being set externally
 export const buildExternalApiUrl = (id: string, externalApiBaseUrl: string | undefined): string => {
   if (!externalApiBaseUrl) {

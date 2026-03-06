@@ -2,10 +2,13 @@
   "name": "lyric-atlas-api",
   "type": "module",
   "scripts": {
+    "dev": "tsx --env-file=.env src/local-server.ts",
+    "cache-admin": "tsx --env-file=.env src/cache-admin-server.ts",
     "start": "vercel dev",
     "deploy": "vercel deploy --prod"
   },
   "dependencies": {
+    "@hono/node-server": "^1.14.4",
     "edge-runtime": "^4.0.1",
     "hono": "^4.8.7",
     "p-limit": "^6.2.0",

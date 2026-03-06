@@ -11,6 +11,8 @@ import { ExternalApiFetcher } from './fetchers/externalApiFetcher';
 import type { LyricFetcher, ExternalLyricFetcher } from './interfaces/fetcher';
 import type { LyricProviderOptions } from './interfaces/lyricTypes';
 import { lyricsCache } from './cache';
+import { localLyricCache } from './localLyricCache';
+import { isDevModeEnabled, getDevLyric } from './devMode';
 
 // Get logger instance using our custom logger
 const logger = getLogger('LyricService');
@@ -58,19 +60,46 @@ export class LyricProvider {
     const fixedVersionQuery = fixedVersionRaw?.toLowerCase();
     logger.info(`LyricProvider: Processing ID: ${id}, fixed: ${fixedVersionQuery}, fallback: ${fallbackQuery}`);
 
-    // 先检查缓存
+    if (fixedVersionQuery === 'ttml' && isDevModeEnabled()) {
+      const devContent = await getDevLyric(id);
+      if (devContent) {
+        logger.info(`Dev mode: Using lyrics-dev file for ${id}`);
+        const result: SearchResult = { found: true, id, format: 'ttml', source: 'repository', content: devContent };
+        return result;
+      }
+    }
+
+    if (fixedVersionQuery === 'ttml') {
+      const localCached = await localLyricCache.getCachedLyric(id);
+      if (localCached) {
+        logger.info(`Local file cache hit for TTML: ${id}`);
+        await localLyricCache.recordPlay(id);
+        const result: SearchResult = { found: true, id, format: 'ttml', source: 'repository', content: localCached };
+        const cacheKey = `search:${id}:ttml:${fallbackQuery || 'none'}:${fast ? 'fast' : 'full'}`;
+        lyricsCache.set(cacheKey, result);
+        return result;
+      }
+    }
+
     const cacheKey = `search:${id}:${fixedVersionQuery || 'none'}:${fallbackQuery || 'none'}:${fast ? 'fast' : 'full'}`;
     const cachedResult = lyricsCache.get(cacheKey);
     if (cachedResult) {
       logger.info(`Cache hit for search with ID: ${id}, fixed: ${fixedVersionQuery}, fallback: ${fallbackQuery}`);
+      if (cachedResult.found && cachedResult.format === 'ttml') {
+        await localLyricCache.recordPlay(id);
+        if (await localLyricCache.shouldCache(id)) {
+          const isCached = await localLyricCache.isCached(id);
+          if (!isCached && cachedResult.content) {
+            await localLyricCache.cacheLyric(id, cachedResult.content, 'main');
+          }
+        }
+      }
       return cachedResult;
     }
 
-    // 检查固定版本
     if (isValidFormat(fixedVersionQuery)) {
       const result = await this.handleFixedVersionSearch(id, fixedVersionQuery, fast);
       
-      // 缓存结果
       if (result.found) {
         lyricsCache.set(cacheKey, result);
       }

@@ -1,18 +1,84 @@
 import {
   LyricFormat,
   buildRawUrl,
+  buildUserLyricUrl,
   getLogger,
 } from '../utils';
+import { localLyricCache } from '../localLyricCache';
 import type { FetchResult } from '../interfaces/lyricTypes';
 import type { LyricFetcher } from '../interfaces/fetcher';
 
 const logger = getLogger('RepositoryFetcher');
 
-/**
- * Fetches lyrics from the GitHub repository.
- */
 export class RepositoryFetcher implements LyricFetcher {
+  private cacheInitialized = false;
+
+  async initCache(): Promise<void> {
+    if (!this.cacheInitialized) {
+      await localLyricCache.init();
+      this.cacheInitialized = true;
+    }
+  }
+
   async fetch(id: string, format: LyricFormat): Promise<FetchResult> {
+    await this.initCache();
+
+    if (format === 'ttml') {
+      const cachedContent = await localLyricCache.getCachedLyric(id);
+      if (cachedContent) {
+        logger.info(`Cache hit for TTML: ${id}`);
+        return { status: 'found', format, content: cachedContent, source: 'repository' };
+      }
+    }
+
+    if (format !== 'ttml') {
+      return this.fetchFromMainRepo(id, format);
+    }
+
+    const mainRepoUrl = buildRawUrl(id, format);
+    const userRepoUrl = buildUserLyricUrl(id);
+
+    logger.info(`Attempting parallel fetch for TTML: ${mainRepoUrl} and ${userRepoUrl}`);
+
+    try {
+      const [mainRepoResult, userRepoResult] = await Promise.allSettled([
+        this.fetchUrl(mainRepoUrl, format),
+        this.fetchUrl(userRepoUrl, format)
+      ]);
+
+      let result: FetchResult | null = null;
+      let source: 'main' | 'user' = 'main';
+
+      if (mainRepoResult.status === 'fulfilled' && mainRepoResult.value.status === 'found') {
+        logger.info(`Success from main repo for TTML`);
+        result = mainRepoResult.value;
+        source = 'main';
+      } else if (userRepoResult.status === 'fulfilled' && userRepoResult.value.status === 'found') {
+        logger.info(`Success from user-lyrics for TTML`);
+        result = userRepoResult.value;
+        source = 'user';
+      }
+
+      if (result) {
+        await localLyricCache.recordPlay(id);
+
+        if (await localLyricCache.shouldCache(id)) {
+          await localLyricCache.cacheLyric(id, result.content!, source);
+        }
+
+        return result;
+      }
+
+      logger.info(`TTML not found in both repos`);
+      return { status: 'notfound', format };
+    } catch (err) {
+      logger.error(`Network error for ${format.toUpperCase()}`, err);
+      const error = err instanceof Error ? err : new Error('Unknown fetch error');
+      return { status: 'error', format, error };
+    }
+  }
+
+  private async fetchFromMainRepo(id: string, format: LyricFormat): Promise<FetchResult> {
     const url = buildRawUrl(id, format);
     logger.info(`Attempting fetch for ${format.toUpperCase()}: ${url}`);
     try {
@@ -30,6 +96,21 @@ export class RepositoryFetcher implements LyricFetcher {
       }
     } catch (err) {
       logger.error(`Network error for ${format.toUpperCase()}`, err);
+      const error = err instanceof Error ? err : new Error('Unknown fetch error');
+      return { status: 'error', format, error };
+    }
+  }
+
+  private async fetchUrl(url: string, format: LyricFormat): Promise<FetchResult> {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        const content = await response.text();
+        return { status: 'found', format, content, source: 'repository' };
+      } else {
+        return { status: 'notfound', format };
+      }
+    } catch (err) {
       const error = err instanceof Error ? err : new Error('Unknown fetch error');
       return { status: 'error', format, error };
     }
