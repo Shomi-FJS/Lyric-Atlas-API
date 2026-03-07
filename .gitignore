@@ -2,6 +2,9 @@
 .vercel/
 .yarn/
 
+# build
+dist/
+
 # local cache
 lyrics-cache/
 lyrics-dev/

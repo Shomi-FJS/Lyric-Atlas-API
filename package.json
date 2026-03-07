@@ -3,19 +3,23 @@
   "type": "module",
   "scripts": {
     "dev": "tsx --env-file=.env src/local-server.ts",
+    "start": "tsx --env-file=.env src/local-server.ts",
     "cache-admin": "tsx --env-file=.env src/cache-admin-server.ts",
-    "start": "vercel dev",
+    "build": "esbuild src/local-server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --external:@hono/node-server --external:edge-runtime --external:p-limit --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
+    "prod": "node --env-file=.env dist/server.js",
+    "vercel:dev": "vercel dev",
     "deploy": "vercel deploy --prod"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",
     "edge-runtime": "^4.0.1",
     "hono": "^4.8.7",
-    "p-limit": "^6.2.0",
-    "tsx": "^4.20.3"
+    "p-limit": "^6.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.16.5",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vercel": "^41.7.8"
   },

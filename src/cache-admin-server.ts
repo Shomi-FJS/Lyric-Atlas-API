@@ -179,9 +179,9 @@ app.post('/api/cache/upload', async (c) => {
   try {
     const formData = await c.req.formData();
     const file = formData.get('file');
-    let id = formData.get('id') as string;
+    let id = formData.get('id') as string | null;
     
-    if (!file) {
+    if (!file || typeof file === 'string') {
       return c.json({ success: false, error: 'Missing file' }, 400);
     }
     
@@ -194,10 +194,11 @@ app.post('/api/cache/upload', async (c) => {
     const metadata = parseTTMLMetadata(content);
     
     if (!id) {
-      id = extractNcmId(content);
-      if (!id) {
+      const extractedId = extractNcmId(content);
+      if (!extractedId) {
         return c.json({ success: false, error: 'Cannot extract NCM ID from TTML file. Please provide ID manually.' }, 400);
       }
+      id = extractedId;
       logger.info(`Auto-extracted NCM ID: ${id}`);
     }
     
@@ -283,9 +284,9 @@ app.post('/api/dev/upload', async (c) => {
     await ensureLyricsDevDir();
     const formData = await c.req.formData();
     const file = formData.get('file');
-    let id = formData.get('id') as string;
+    let id = formData.get('id') as string | null;
     
-    if (!file) {
+    if (!file || typeof file === 'string') {
       return c.json({ success: false, error: 'Missing file' }, 400);
     }
     
@@ -298,10 +299,11 @@ app.post('/api/dev/upload', async (c) => {
     const metadata = parseTTMLMetadata(content);
     
     if (!id) {
-      id = extractNcmId(content);
-      if (!id) {
+      const extractedId = extractNcmId(content);
+      if (!extractedId) {
         return c.json({ success: false, error: 'Cannot extract NCM ID from TTML file. Please provide ID manually.' }, 400);
       }
+      id = extractedId;
       logger.info(`Auto-extracted NCM ID: ${id}`);
     }
     
