@@ -18,7 +18,7 @@ export class Cache<T> {
     this.ttl = ttlInMs;
     this.name = name;
     this.maxSize = maxSize;
-    logger.info(`Cache '${name}' initialized with TTL: ${ttlInMs}ms, maxSize: ${maxSize}`);
+    logger.info(logger.msg('cache.initialized', { name, ttl: ttlInMs, maxSize }));
   }
 
   get(key: string): T | null {
@@ -30,7 +30,7 @@ export class Cache<T> {
     }
 
     if (now - entry.timestamp > this.ttl) {
-      logger.debug(`Cache '${this.name}': Entry for key '${key}' expired`);
+      logger.debug(logger.msg('cache.expired', { key }));
       this.cache.delete(key);
       return null;
     }
@@ -38,7 +38,7 @@ export class Cache<T> {
     this.cache.delete(key);
     this.cache.set(key, entry);
 
-    logger.debug(`Cache '${this.name}': Hit for key '${key}'`);
+    logger.debug(logger.msg('cache.hit', { key }));
     return entry.data;
   }
 
@@ -46,7 +46,7 @@ export class Cache<T> {
     if (this.cache.size >= this.maxSize) {
       const oldestKey = this.cache.keys().next().value;
       if (oldestKey !== undefined) {
-        logger.debug(`Cache '${this.name}': Evicting oldest entry '${oldestKey}' due to size limit`);
+        logger.debug(logger.msg('cache.evict', { key: oldestKey }));
         this.cache.delete(oldestKey);
       }
     }
@@ -55,11 +55,11 @@ export class Cache<T> {
       data,
       timestamp: Date.now()
     });
-    logger.debug(`Cache '${this.name}': Set key '${key}'`);
+    logger.debug(logger.msg('cache.set', { key }));
   }
 
   invalidate(key: string): boolean {
-    logger.debug(`Cache '${this.name}': Invalidating key '${key}'`);
+    logger.debug(`Invalidating key '${key}'`);
     return this.cache.delete(key);
   }
 
@@ -68,7 +68,7 @@ export class Cache<T> {
   }
 
   clear(): void {
-    logger.info(`Cache '${this.name}': Clearing all entries`);
+    logger.info(logger.msg('cache.clear'));
     this.cache.clear();
   }
 
@@ -84,7 +84,7 @@ export class Cache<T> {
     }
 
     if (cleaned > 0) {
-      logger.info(`Cache '${this.name}': Cleaned up ${cleaned} expired entries`);
+      logger.info(logger.msg('cache.cleanup', { count: cleaned }));
     }
     return cleaned;
   }
@@ -95,7 +95,7 @@ export const metadataCache = new Cache<any>('metadata', 30 * 60 * 1000, 3000);
 export const lyricsCache = new Cache<any>('lyrics', 60 * 60 * 1000, 2000);
 
 export function setupCacheCleanup(intervalMs: number = 15 * 60 * 1000): ReturnType<typeof setInterval> {
-  logger.info(`Setting up cache cleanup interval: ${intervalMs}ms`);
+  logger.info(logger.msg('cache.cleanup_interval', { interval: intervalMs }));
   return setInterval(() => {
     metadataCache.cleanup();
     lyricsCache.cleanup();

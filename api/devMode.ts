@@ -26,10 +26,10 @@ export async function initDevMode(): Promise<void> {
     const data = await readFile(SETTINGS_FILE, 'utf-8');
     const settings: DevModeSettings = JSON.parse(data);
     devModeEnabled = settings.devModeEnabled || false;
-    logger.info(`Dev mode initialized: ${devModeEnabled ? 'enabled' : 'disabled'}`);
+    logger.info(logger.msg('devmode.initialized', { status: devModeEnabled ? '已启用' : '已禁用' }));
   } catch {
     devModeEnabled = false;
-    logger.info('No dev mode settings found, using default (disabled)');
+    logger.info('未找到开发模式设置，使用默认值 (已禁用)');
   }
   
   initialized = true;
@@ -49,7 +49,7 @@ export async function getDevLyric(id: string): Promise<string | null> {
   try {
     const filePath = join(LYRICS_DEV_DIR, `${id}.ttml`);
     const content = await readFile(filePath, 'utf-8');
-    logger.info(`Dev mode: Found lyric for ${id} in lyrics-dev`);
+    logger.info(logger.msg('devmode.using_file', { id }));
     return content;
   } catch {
     return null;

@@ -51,10 +51,10 @@ async function loadSettings(): Promise<void> {
     const data = await fs.readFile(SETTINGS_FILE, 'utf-8');
     const settings = JSON.parse(data);
     devModeEnabled = settings.devModeEnabled || false;
-    logger.info(`Loaded settings: devModeEnabled=${devModeEnabled}`);
+    logger.info(logger.msg('admin.settings_loaded', { status: devModeEnabled }));
   } catch {
     devModeEnabled = false;
-    logger.info('No settings file found, using defaults');
+    logger.info('未找到设置文件，使用默认值');
   }
 }
 
@@ -66,7 +66,7 @@ async function ensureLyricsDevDir(): Promise<void> {
   try {
     await fs.mkdir(LYRICS_DEV_DIR, { recursive: true });
   } catch (err) {
-    logger.error('Failed to create lyrics-dev directory', err);
+    logger.error('创建 lyrics-dev 目录失败', err);
   }
 }
 
@@ -128,8 +128,8 @@ app.get('/api/cache/list', async (c) => {
     
     return c.json({ success: true, files: cacheFiles, total: cacheFiles.length });
   } catch (err) {
-    logger.error('Failed to list cache files', err);
-    return c.json({ success: false, error: 'Failed to list cache files' }, 500);
+    logger.error('获取缓存列表失败', err);
+    return c.json({ success: false, error: '获取缓存列表失败' }, 500);
   }
 });
 
@@ -137,20 +137,20 @@ app.delete('/api/cache/:id', async (c) => {
   const id = c.req.param('id');
   
   if (!id || !/^\d+$/.test(id)) {
-    return c.json({ success: false, error: 'Invalid ID format' }, 400);
+    return c.json({ success: false, error: 'ID 格式无效' }, 400);
   }
   
   try {
     const deleted = await localLyricCache.deleteCache(id);
     if (deleted) {
-      logger.info(`Deleted cache for ID: ${id}`);
-      return c.json({ success: true, message: `Cache ${id} deleted` });
+      logger.info(`已删除缓存: ${id}`);
+      return c.json({ success: true, message: `缓存 ${id} 已删除` });
     } else {
-      return c.json({ success: false, error: 'Cache not found' }, 404);
+      return c.json({ success: false, error: '缓存不存在' }, 404);
     }
   } catch (err) {
-    logger.error('Failed to delete cache', err);
-    return c.json({ success: false, error: 'Failed to delete cache' }, 500);
+    logger.error('删除缓存失败', err);
+    return c.json({ success: false, error: '删除缓存失败' }, 500);
   }
 });
 
@@ -158,7 +158,7 @@ app.get('/api/cache/file/:id', async (c) => {
   const id = c.req.param('id');
   
   if (!id || !/^\d+$/.test(id)) {
-    return c.json({ success: false, error: 'Invalid ID format' }, 400);
+    return c.json({ success: false, error: 'ID 格式无效' }, 400);
   }
   
   try {
@@ -170,10 +170,10 @@ app.get('/api/cache/file/:id', async (c) => {
     });
   } catch (err: any) {
     if (err.code === 'ENOENT') {
-      return c.json({ success: false, error: 'File not found' }, 404);
+      return c.json({ success: false, error: '文件不存在' }, 404);
     }
-    logger.error('Failed to read cache file', err);
-    return c.json({ success: false, error: 'Failed to read cache file' }, 500);
+    logger.error('读取缓存文件失败', err);
+    return c.json({ success: false, error: '读取缓存文件失败' }, 500);
   }
 });
 
@@ -184,13 +184,13 @@ app.post('/api/cache/upload', async (c) => {
     let id = formData.get('id') as string | null;
     
     if (!file || typeof file === 'string') {
-      return c.json({ success: false, error: 'Missing file' }, 400);
+      return c.json({ success: false, error: '缺少文件' }, 400);
     }
     
     const content = await file.text();
     
     if (!content.includes('<tt') || !content.includes('xmlns')) {
-      return c.json({ success: false, error: 'Invalid TTML format' }, 400);
+      return c.json({ success: false, error: '无效的 TTML 格式' }, 400);
     }
     
     const metadata = parseTTMLMetadata(content);
@@ -198,29 +198,29 @@ app.post('/api/cache/upload', async (c) => {
     if (!id) {
       const extractedId = extractNcmId(content);
       if (!extractedId) {
-        return c.json({ success: false, error: 'Cannot extract NCM ID from TTML file. Please provide ID manually.' }, 400);
+        return c.json({ success: false, error: '无法从 TTML 文件中提取网易云 ID，请手动提供 ID' }, 400);
       }
       id = extractedId;
-      logger.info(`Auto-extracted NCM ID: ${id}`);
+      logger.info(`自动提取网易云 ID: ${id}`);
     }
     
     if (!/^\d+$/.test(id)) {
-      return c.json({ success: false, error: 'ID must be numeric' }, 400);
+      return c.json({ success: false, error: 'ID 必须为数字' }, 400);
     }
     
     await localLyricCache.cacheLyric(id, content, 'upload');
-    logger.info(`Uploaded cache for ID: ${id}`);
+    logger.info(`已上传缓存: ${id}`);
     
     return c.json({ 
       success: true, 
-      message: `Cache ${id} uploaded successfully`, 
+      message: `缓存 ${id} 上传成功`, 
       id,
       musicName: metadata.musicName,
       artists: metadata.artists
     });
   } catch (err) {
-    logger.error('Failed to upload cache', err);
-    return c.json({ success: false, error: 'Failed to upload cache' }, 500);
+    logger.error('上传缓存失败', err);
+    return c.json({ success: false, error: '上传缓存失败' }, 500);
   }
 });
 
@@ -229,11 +229,11 @@ app.post('/api/dev-mode', async (c) => {
     const body = await c.req.json();
     devModeEnabled = !!body.enabled;
     await saveSettings();
-    logger.info(`Dev mode ${devModeEnabled ? 'enabled' : 'disabled'}`);
+    logger.info(`开发模式${devModeEnabled ? '已启用' : '已禁用'}`);
     return c.json({ success: true, devModeEnabled });
   } catch (err) {
-    logger.error('Failed to update dev mode', err);
-    return c.json({ success: false, error: 'Failed to update dev mode' }, 500);
+    logger.error('更新开发模式失败', err);
+    return c.json({ success: false, error: '更新开发模式失败' }, 500);
   }
 });
 
@@ -276,8 +276,8 @@ app.get('/api/dev/list', async (c) => {
     
     return c.json({ success: true, files: devFiles, total: devFiles.length });
   } catch (err) {
-    logger.error('Failed to list dev files', err);
-    return c.json({ success: false, error: 'Failed to list dev files' }, 500);
+    logger.error('获取开发文件列表失败', err);
+    return c.json({ success: false, error: '获取开发文件列表失败' }, 500);
   }
 });
 
@@ -289,13 +289,13 @@ app.post('/api/dev/upload', async (c) => {
     let id = formData.get('id') as string | null;
     
     if (!file || typeof file === 'string') {
-      return c.json({ success: false, error: 'Missing file' }, 400);
+      return c.json({ success: false, error: '缺少文件' }, 400);
     }
     
     const content = await file.text();
     
     if (!content.includes('<tt') || !content.includes('xmlns')) {
-      return c.json({ success: false, error: 'Invalid TTML format' }, 400);
+      return c.json({ success: false, error: '无效的 TTML 格式' }, 400);
     }
     
     const metadata = parseTTMLMetadata(content);
@@ -303,30 +303,30 @@ app.post('/api/dev/upload', async (c) => {
     if (!id) {
       const extractedId = extractNcmId(content);
       if (!extractedId) {
-        return c.json({ success: false, error: 'Cannot extract NCM ID from TTML file. Please provide ID manually.' }, 400);
+        return c.json({ success: false, error: '无法从 TTML 文件中提取网易云 ID，请手动提供 ID' }, 400);
       }
       id = extractedId;
-      logger.info(`Auto-extracted NCM ID: ${id}`);
+      logger.info(`自动提取网易云 ID: ${id}`);
     }
     
     if (!/^\d+$/.test(id)) {
-      return c.json({ success: false, error: 'ID must be numeric' }, 400);
+      return c.json({ success: false, error: 'ID 必须为数字' }, 400);
     }
     
     const filePath = path.join(LYRICS_DEV_DIR, `${id}.ttml`);
     await fs.writeFile(filePath, content, 'utf-8');
-    logger.info(`Uploaded dev file for ID: ${id}`);
+    logger.info(`已上传开发文件: ${id}`);
     
     return c.json({ 
       success: true, 
-      message: `Dev file ${id} uploaded successfully`, 
+      message: `开发文件 ${id} 上传成功`, 
       id,
       musicName: metadata.musicName,
       artists: metadata.artists
     });
   } catch (err) {
-    logger.error('Failed to upload dev file', err);
-    return c.json({ success: false, error: 'Failed to upload dev file' }, 500);
+    logger.error('上传开发文件失败', err);
+    return c.json({ success: false, error: '上传开发文件失败' }, 500);
   }
 });
 
@@ -334,20 +334,20 @@ app.delete('/api/dev/:id', async (c) => {
   const id = c.req.param('id');
   
   if (!id || !/^\d+$/.test(id)) {
-    return c.json({ success: false, error: 'Invalid ID format' }, 400);
+    return c.json({ success: false, error: 'ID 格式无效' }, 400);
   }
   
   try {
     const filePath = path.join(LYRICS_DEV_DIR, `${id}.ttml`);
     await fs.unlink(filePath);
-    logger.info(`Deleted dev file for ID: ${id}`);
-    return c.json({ success: true, message: `Dev file ${id} deleted` });
+    logger.info(`已删除开发文件: ${id}`);
+    return c.json({ success: true, message: `开发文件 ${id} 已删除` });
   } catch (err: any) {
     if (err.code === 'ENOENT') {
-      return c.json({ success: false, error: 'File not found' }, 404);
+      return c.json({ success: false, error: '文件不存在' }, 404);
     }
-    logger.error('Failed to delete dev file', err);
-    return c.json({ success: false, error: 'Failed to delete dev file' }, 500);
+    logger.error('删除开发文件失败', err);
+    return c.json({ success: false, error: '删除开发文件失败' }, 500);
   }
 });
 
@@ -355,7 +355,7 @@ app.get('/api/dev/file/:id', async (c) => {
   const id = c.req.param('id');
   
   if (!id || !/^\d+$/.test(id)) {
-    return c.json({ success: false, error: 'Invalid ID format' }, 400);
+    return c.json({ success: false, error: 'ID 格式无效' }, 400);
   }
   
   try {
@@ -366,10 +366,10 @@ app.get('/api/dev/file/:id', async (c) => {
     });
   } catch (err: any) {
     if (err.code === 'ENOENT') {
-      return c.json({ success: false, error: 'File not found' }, 404);
+      return c.json({ success: false, error: '文件不存在' }, 404);
     }
-    logger.error('Failed to read dev file', err);
-    return c.json({ success: false, error: 'Failed to read dev file' }, 500);
+    logger.error('读取开发文件失败', err);
+    return c.json({ success: false, error: '读取开发文件失败' }, 500);
   }
 });
 
@@ -377,7 +377,7 @@ export async function startCacheAdminServer(): Promise<void> {
   await loadSettings();
   await ensureLyricsDevDir();
   
-  console.log(`[INFO] Cache Admin Server running on http://localhost:${PORT}`);
+  logger.info(logger.msg('admin.server_running', { url: `http://localhost:${PORT}` }));
   
   serve({
     fetch: app.fetch,

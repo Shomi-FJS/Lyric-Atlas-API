@@ -231,6 +231,10 @@ Lyric-Atlas-API/
      EXTERNAL_NCM_API_URL=https://NeteaseCloudMusicApi/lyric/new
      PORT=3000 # 可选，默认 3000
      PRISMA_DATABASE_URL="prisma+postgres://github.com/amll-dev/amll-ttml-db" # 修改此仓储可自定义使用其他仓库，但建议使用默认值
+     
+     # 控制台日志语言配置 (可选)
+     LOG_LANGUAGE=zh # 可选值: zh (中文), en (英文)，默认为 zh
+     # 仅影响后端控制台日志输出语言，前端界面语言由浏览器自动检测
      ```
      **重要:** 将 `.env` 文件添加到 `.gitignore`。
    - **生产:** 通过你的部署平台或系统设置相应的环境变量。

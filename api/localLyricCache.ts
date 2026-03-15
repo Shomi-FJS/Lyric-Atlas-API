@@ -72,9 +72,9 @@ export class LocalLyricCache {
       await this.loadMeta();
       this.initialized = true;
       this.startUpdateCheck();
-      logger.info('Local lyric cache initialized');
+      logger.info(logger.msg('localcache.initialized'));
     } catch (err) {
-      logger.error('Failed to initialize local lyric cache:', err);
+      logger.error('初始化本地歌词缓存失败:', err);
     }
   }
 
@@ -83,7 +83,7 @@ export class LocalLyricCache {
       await access(CACHE_DIR);
     } catch {
       await mkdir(CACHE_DIR, { recursive: true });
-      logger.info(`Created cache directory: ${CACHE_DIR}`);
+      logger.info(`创建缓存目录: ${CACHE_DIR}`);
     }
   }
 
@@ -91,7 +91,7 @@ export class LocalLyricCache {
     try {
       const data = await readFile(META_FILE, 'utf-8');
       this.meta = JSON.parse(data);
-      logger.info(`Loaded cache meta with ${Object.keys(this.meta.lyrics).length} entries`);
+      logger.info(logger.msg('localcache.loaded_meta', { count: Object.keys(this.meta.lyrics).length }));
     } catch {
       this.meta = { lyrics: {}, lastUpdateCheck: 0 };
       await this.saveMeta();
@@ -129,7 +129,7 @@ export class LocalLyricCache {
     this.meta.lyrics[id].lastPlayedAt = Date.now();
     await this.saveMeta();
 
-    logger.debug(`Recorded play for ${id}, count: ${this.meta.lyrics[id].playCount}`);
+    logger.debug(logger.msg('localcache.play_recorded', { id, count: this.meta.lyrics[id].playCount }));
   }
 
   async shouldCache(id: string): Promise<boolean> {
@@ -213,9 +213,9 @@ export class LocalLyricCache {
       }
 
       await this.saveMeta();
-      logger.info(`Cached lyric for ${id} from ${source}`);
+      logger.info(logger.msg('localcache.cached', { id, source }));
     } catch (err) {
-      logger.error(`Failed to cache lyric for ${id}:`, err);
+      logger.error(`缓存歌词失败 ${id}:`, err);
     }
   }
 
@@ -227,7 +227,7 @@ export class LocalLyricCache {
       await unlink(filePath);
       delete this.meta.lyrics[id];
       await this.saveMeta();
-      logger.info(`Deleted cache for ${id}`);
+      logger.info(logger.msg('localcache.deleted', { id }));
       return true;
     } catch (err: any) {
       if (err.code === 'ENOENT') {
@@ -235,7 +235,7 @@ export class LocalLyricCache {
         await this.saveMeta();
         return false;
       }
-      logger.error(`Failed to delete cache for ${id}:`, err);
+      logger.error(`删除缓存失败 ${id}:`, err);
       return false;
     }
   }
@@ -260,9 +260,9 @@ export class LocalLyricCache {
           this.contentCache.delete(id);
           delete this.meta.lyrics[id];
           cleaned++;
-          logger.info(`Removed inactive lyric cache for ${id}`);
+          logger.info(logger.msg('localcache.cleaned_inactive', { id }));
         } catch (err) {
-          logger.error(`Failed to remove cache for ${id}:`, err);
+          logger.error(`清理缓存失败 ${id}:`, err);
         }
       }
     }

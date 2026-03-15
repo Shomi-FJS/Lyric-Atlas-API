@@ -3,7 +3,9 @@ import app from './app.js';
 import { localLyricCache } from '../api/localLyricCache.js';
 import { initDevMode } from '../api/devMode.js';
 import { startCacheAdminServer } from './cache-admin-server.js';
+import { getLogger } from '../api/utils.js';
 
+const logger = getLogger('Server');
 const port = Number(process.env.PORT) || 3000;
 
 Promise.all([
@@ -11,7 +13,7 @@ Promise.all([
   initDevMode(),
   startCacheAdminServer()
 ]).then(() => {
-  console.log(`Server is running on http://localhost:${port}`);
+  logger.info(logger.msg('api.running', { url: `http://localhost:${port}` }));
 
   serve({
     fetch: app.fetch,

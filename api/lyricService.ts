@@ -64,7 +64,7 @@ export class LyricProvider {
   async search(id: string, options: LyricProviderOptions): Promise<SearchResult> {
     const { fixedVersion: fixedVersionRaw, fallback: fallbackQuery, fast, signal } = options;
     const fixedVersionQuery = fixedVersionRaw?.toLowerCase();
-    logger.info(`LyricProvider: Processing ID: ${id}, fixed: ${fixedVersionQuery}, fallback: ${fallbackQuery}`);
+    logger.info(logger.msg('provider.processing', { id, format: fixedVersionQuery || 'auto', fallback: fallbackQuery || 'none' }));
 
     this.checkAborted(signal);
 
@@ -72,7 +72,7 @@ export class LyricProvider {
       const devContent = await getDevLyric(id);
       this.checkAborted(signal);
       if (devContent) {
-        logger.info(`Dev mode: Using lyrics-dev file for ${id}`);
+        logger.info(logger.msg('devmode.using_file', { id }));
         return { found: true, id, format: 'ttml', source: 'repository', content: devContent };
       }
     }
@@ -81,7 +81,7 @@ export class LyricProvider {
       const localCached = await localLyricCache.getCachedLyric(id);
       this.checkAborted(signal);
       if (localCached) {
-        logger.info(`Local file cache hit for TTML: ${id}`);
+        logger.info(logger.msg('localcache.cache_hit', { id }));
         const result: SearchResult = { found: true, id, format: 'ttml', source: 'repository', content: localCached };
         const cacheKey = `search:${id}:ttml:${fallbackQuery || 'none'}:${fast ? 'fast' : 'full'}`;
         lyricsCache.set(cacheKey, result);
@@ -92,7 +92,7 @@ export class LyricProvider {
     const cacheKey = `search:${id}:${fixedVersionQuery || 'none'}:${fallbackQuery || 'none'}:${fast ? 'fast' : 'full'}`;
     const cachedResult = lyricsCache.get(cacheKey);
     if (cachedResult) {
-      logger.info(`Cache hit for search with ID: ${id}`);
+      logger.info(`缓存命中 (搜索): ${id}`);
       if (cachedResult.found && cachedResult.format === 'ttml' && cachedResult.content) {
         if (await localLyricCache.shouldCache(id)) {
           const isCached = await localLyricCache.isCached(id);
@@ -114,12 +114,12 @@ export class LyricProvider {
       return result;
     }
 
-    logger.info(`LyricProvider: Starting standard search flow. TTML from repo has highest priority.`);
+    logger.info(logger.msg('provider.search_start'));
 
     const TOTAL_TIMEOUT_MS = 6000;
     const controller = new AbortController();
     const overallTimeoutId = setTimeout(() => {
-      logger.warn(`LyricProvider: Search timed out globally after ${TOTAL_TIMEOUT_MS}ms for ID: ${id}`);
+      logger.warn(logger.msg('provider.timeout', { timeout: TOTAL_TIMEOUT_MS }));
       controller.abort(new Error(`Search timed out after ${TOTAL_TIMEOUT_MS}ms`));
     }, TOTAL_TIMEOUT_MS);
 
@@ -128,7 +128,7 @@ export class LyricProvider {
       const externalApiTask = fast ? Promise.resolve(null as SearchResult | null) : this.findInExternalApi(id);
 
       if (fast) {
-        logger.info(`LyricProvider: Fast mode enabled, skipping external API fallback.`);
+        logger.info(`快速模式已启用，跳过外部API回退`);
       }
 
       const raceWithGlobalTimeout = <T>(task: Promise<T>, taskName: string): Promise<T> => {
@@ -158,13 +158,13 @@ export class LyricProvider {
       if (repoResultSettled.status === 'fulfilled') {
         repoResultFromSettled = repoResultSettled.value;
       } else {
-        logger.warn(`LyricProvider: Repository search task failed or timed out: ${(repoResultSettled.reason as Error)?.message || String(repoResultSettled.reason)}`);
+        logger.warn(`仓库搜索任务失败或超时: ${(repoResultSettled.reason as Error)?.message || String(repoResultSettled.reason)}`);
       }
 
       if (externalApiResultSettled.status === 'fulfilled') {
         externalResultFromSettled = externalApiResultSettled.value;
       } else {
-        logger.warn(`LyricProvider: External API search task failed or timed out: ${(externalApiResultSettled.reason as Error)?.message || String(externalApiResultSettled.reason)}`);
+        logger.warn(`外部API搜索任务失败或超时: ${(externalApiResultSettled.reason as Error)?.message || String(externalApiResultSettled.reason)}`);
       }
 
       if (repoResultFromSettled?.found && repoResultFromSettled.format === 'ttml') {

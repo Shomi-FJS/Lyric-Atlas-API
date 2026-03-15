@@ -77,19 +77,19 @@ app.get('/search', async (c: Context) => {
   const fast = c.req.query('fast') !== undefined;
   const signal = c.req.raw.signal;
 
-  apiLogger.info(`Search request - ID: ${id}, Fixed: ${fixedVersionRaw}, Fallback: ${fallbackQuery}, Fast: ${fast}`);
+  apiLogger.info(apiLogger.msg('api.search_request', { id, format: fixedVersionRaw || 'auto', fallback: fallbackQuery || 'none', fast: fast ? '是' : '否' }));
 
   const externalApiBaseUrl = getExternalApiBaseUrl();
 
   if (!externalApiBaseUrl && !fast) {
     c.status(500);
-    return c.json({ found: false, id, error: 'Server configuration error.' });
+    return c.json({ found: false, id, error: '服务器配置错误' });
   }
 
   if (!id) {
-    apiLogger.warn('Search failed: Missing id parameter.');
+    apiLogger.warn('搜索失败: 缺少 id 参数');
     c.status(400);
-    return c.json({ found: false, error: 'Missing id parameter' });
+    return c.json({ found: false, error: '缺少 id 参数' });
   }
 
   try {
@@ -103,26 +103,26 @@ app.get('/search', async (c: Context) => {
     });
 
     if (result.found) {
-      apiLogger.info(`Lyrics found for ID: ${id} - Format: ${result.format}, Source: ${result.source}`);
-      if (result.translation) apiLogger.debug(`Translation found for ID: ${id}`);
-      if (result.romaji) apiLogger.debug(`Romaji found for ID: ${id}`);
+      apiLogger.info(apiLogger.msg('api.found', { id, format: result.format, source: result.source }));
+      if (result.translation) apiLogger.debug(`找到翻译: ${id}`);
+      if (result.romaji) apiLogger.debug(`找到罗马音: ${id}`);
       return c.json(result);
     } else {
       const statusCode = result.statusCode || 404;
       c.status(statusCode as any);
-      apiLogger.info(`Lyrics not found for ID: ${id} - Status: ${statusCode}, Error: ${result.error}`);
+      apiLogger.info(apiLogger.msg('api.not_found', { id, status: statusCode, error: result.error || '未知错误' }));
       return c.json(result);
     }
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown processing error';
+    const errorMessage = error instanceof Error ? error.message : '未知错误';
     if (errorMessage === 'Request aborted') {
-      apiLogger.info(`Search request aborted for ID: ${id}`);
+      apiLogger.info(apiLogger.msg('api.aborted', { id }));
       return new Response(null, { status: 499 });
     }
-    apiLogger.error(`Unexpected error during search for ID: ${id} - ${errorMessage}`, error);
+    apiLogger.error(`搜索时发生意外错误 ID: ${id} - ${errorMessage}`, error);
     c.status(500);
-    return c.json({ found: false, id, error: `Failed to process lyric request: ${errorMessage}` });
+    return c.json({ found: false, id, error: `处理歌词请求失败: ${errorMessage}` });
   }
 });
 
