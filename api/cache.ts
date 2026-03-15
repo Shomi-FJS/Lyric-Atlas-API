@@ -2,18 +2,14 @@ import { getLogger } from './utils';
 
 const logger = getLogger('Cache');
 
-// 确保缓存在Vercel Edge Functions环境中可用
-// 使用Map作为内存缓存，这在Edge Runtime中是完全支持的
-// 通用缓存接口
 interface CacheEntry<T> {
   data: T;
   timestamp: number;
 }
 
-// 创建类型化的缓存管理器
 export class Cache<T> {
   private cache: Map<string, CacheEntry<T>>;
-  private ttl: number; // 缓存生存时间(毫秒)
+  private ttl: number;
   private name: string;
   private maxSize: number;
 
@@ -25,7 +21,6 @@ export class Cache<T> {
     logger.info(`Cache '${name}' initialized with TTL: ${ttlInMs}ms, maxSize: ${maxSize}`);
   }
 
-  // 获取缓存的项目 - 命中时维护 LRU 顺序
   get(key: string): T | null {
     const now = Date.now();
     const entry = this.cache.get(key);
@@ -34,14 +29,12 @@ export class Cache<T> {
       return null;
     }
 
-    // 检查是否过期
     if (now - entry.timestamp > this.ttl) {
       logger.debug(`Cache '${this.name}': Entry for key '${key}' expired`);
       this.cache.delete(key);
       return null;
     }
 
-    // LRU: 删除并重新插入以更新顺序
     this.cache.delete(key);
     this.cache.set(key, entry);
 
@@ -49,9 +42,7 @@ export class Cache<T> {
     return entry.data;
   }
 
-  // 设置缓存项目
   set(key: string, data: T): void {
-    // 如果达到最大大小，删除最旧的条目（Map 插入顺序的第一个）
     if (this.cache.size >= this.maxSize) {
       const oldestKey = this.cache.keys().next().value;
       if (oldestKey !== undefined) {
@@ -67,24 +58,20 @@ export class Cache<T> {
     logger.debug(`Cache '${this.name}': Set key '${key}'`);
   }
 
-  // 手动清除缓存中的项目
   invalidate(key: string): boolean {
     logger.debug(`Cache '${this.name}': Invalidating key '${key}'`);
     return this.cache.delete(key);
   }
 
-  // 获取缓存大小
   size(): number {
     return this.cache.size;
   }
 
-  // 清除所有缓存
   clear(): void {
     logger.info(`Cache '${this.name}': Clearing all entries`);
     this.cache.clear();
   }
 
-  // 清除过期的项目
   cleanup(): number {
     const now = Date.now();
     let cleaned = 0;
@@ -103,14 +90,10 @@ export class Cache<T> {
   }
 }
 
-// 默认缓存实例
-// 元数据缓存 - 30分钟TTL
-export const metadataCache = new Cache<any>('metadata', 30 * 60 * 1000, 2000);
+export const metadataCache = new Cache<any>('metadata', 30 * 60 * 1000, 3000);
 
-// 歌词内容缓存 - 60分钟TTL
-export const lyricsCache = new Cache<any>('lyrics', 60 * 60 * 1000, 1000);
+export const lyricsCache = new Cache<any>('lyrics', 60 * 60 * 1000, 2000);
 
-// 导出执行定期清理的函数
 export function setupCacheCleanup(intervalMs: number = 15 * 60 * 1000): ReturnType<typeof setInterval> {
   logger.info(`Setting up cache cleanup interval: ${intervalMs}ms`);
   return setInterval(() => {

@@ -9,9 +9,6 @@ import type { ExternalLyricFetcher } from '../interfaces/fetcher';
 
 const logger = getLogger('ExternalApiFetcher');
 
-/**
- * Fetches lyrics from the external API.
- */
 export class ExternalApiFetcher implements ExternalLyricFetcher {
   constructor(private externalApiBaseUrl: string | undefined) {}
 
@@ -56,13 +53,13 @@ export class ExternalApiFetcher implements ExternalLyricFetcher {
 
       for (const format of formatsToTry) {
         if (!format) continue;
-        const key = format === 'yrc' ? 'yrc' : 'lrc'; // Assuming API response keys match format names
+        const key = format === 'yrc' ? 'yrc' : 'lrc';
         const filteredContent = filterLyricLines(externalData?.[key]?.lyric);
         if (filteredContent) {
           logger.info(`Found and filtered ${format.toUpperCase()} lyrics for ID: ${id}.`);
           foundFormat = format;
           foundContent = filteredContent;
-          break; // Found the best available format
+          break;
         }
       }
 
@@ -73,7 +70,7 @@ export class ExternalApiFetcher implements ExternalLyricFetcher {
       logger.info(`No usable lyrics${specificFormat ? ` for format ${specificFormat}` : ''} found for ID: ${id}.`);
       return { status: 'notfound', format: specificFormat };
 
-    } catch (externalFetchError) {
+    } catch (externalFetchError: any) {
       logger.error(`Network error during fetch for ID: ${id}`, externalFetchError);
       const error = externalFetchError instanceof Error ? externalFetchError : new Error('Unknown external fetch error');
       return { status: 'error', statusCode: 502, error };

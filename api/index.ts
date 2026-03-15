@@ -75,14 +75,13 @@ app.get('/search', async (c: Context) => {
   const fallbackQuery = c.req.query('fallback');
   const fixedVersionRaw = c.req.query('fixedVersion');
   const fast = c.req.query('fast') !== undefined;
+  const signal = c.req.raw.signal;
 
   apiLogger.info(`Search request - ID: ${id}, Fixed: ${fixedVersionRaw}, Fallback: ${fallbackQuery}, Fast: ${fast}`);
 
-  // Call the updated helper function
-  const externalApiBaseUrl = getExternalApiBaseUrl(); // No need to pass 'c'
+  const externalApiBaseUrl = getExternalApiBaseUrl();
 
   if (!externalApiBaseUrl && !fast) {
-    // Already logged in getExternalApiBaseUrl
     c.status(500);
     return c.json({ found: false, id, error: 'Server configuration error.' });
   }
@@ -94,13 +93,13 @@ app.get('/search', async (c: Context) => {
   }
 
   try {
-    // Instantiate LyricProvider within the request
     const lyricProvider = new LyricProvider(externalApiBaseUrl);
 
     const result: SearchResult = await lyricProvider.search(id, {
       fixedVersion: fixedVersionRaw,
       fallback: fallbackQuery,
       fast,
+      signal,
     });
 
     if (result.found) {
@@ -110,7 +109,6 @@ app.get('/search', async (c: Context) => {
       return c.json(result);
     } else {
       const statusCode = result.statusCode || 404;
-      // Type assertion needed because Hono expects specific literal types for status codes
       c.status(statusCode as any);
       apiLogger.info(`Lyrics not found for ID: ${id} - Status: ${statusCode}, Error: ${result.error}`);
       return c.json(result);
@@ -118,6 +116,10 @@ app.get('/search', async (c: Context) => {
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown processing error';
+    if (errorMessage === 'Request aborted') {
+      apiLogger.info(`Search request aborted for ID: ${id}`);
+      return new Response(null, { status: 499 });
+    }
     apiLogger.error(`Unexpected error during search for ID: ${id} - ${errorMessage}`, error);
     c.status(500);
     return c.json({ found: false, id, error: `Failed to process lyric request: ${errorMessage}` });

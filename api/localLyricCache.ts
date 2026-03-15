@@ -1,6 +1,6 @@
 import { getLogger } from './utils';
 import { createHash } from 'crypto';
-import { readFile, writeFile, mkdir, readdir, stat, unlink, access } from 'fs/promises';
+import { readFile, writeFile, mkdir, unlink, access } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -14,6 +14,7 @@ const META_FILE = join(CACHE_DIR, 'cache-meta.json');
 const PLAY_COUNT_THRESHOLD = 2;
 const INACTIVE_DAYS_THRESHOLD = 15;
 const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const MAX_MEMORY_CACHE_SIZE = 500;
 
 interface LyricMeta {
   playCount: number;
@@ -35,6 +36,7 @@ export class LocalLyricCache {
   private meta: CacheMeta;
   private initialized: boolean = false;
   private updateCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private contentCache: Map<string, { content: string; timestamp: number }> = new Map();
 
   constructor() {
     this.meta = { lyrics: {}, lastUpdateCheck: 0 };
@@ -146,9 +148,24 @@ export class LocalLyricCache {
   }
 
   async getCachedLyric(id: string): Promise<string | null> {
+    const cached = this.contentCache.get(id);
+    if (cached) {
+      this.recordPlay(id).catch(() => {});
+      return cached.content;
+    }
+    
     try {
       const content = await readFile(this.getCacheFilePath(id), 'utf-8');
-      await this.recordPlay(id);
+      
+      if (this.contentCache.size >= MAX_MEMORY_CACHE_SIZE) {
+        const oldestKey = this.contentCache.keys().next().value;
+        if (oldestKey) {
+          this.contentCache.delete(oldestKey);
+        }
+      }
+      
+      this.contentCache.set(id, { content, timestamp: Date.now() });
+      this.recordPlay(id).catch(() => {});
       return content;
     } catch {
       return null;
@@ -162,6 +179,14 @@ export class LocalLyricCache {
 
     try {
       await writeFile(filePath, content, 'utf-8');
+
+      if (this.contentCache.size >= MAX_MEMORY_CACHE_SIZE) {
+        const oldestKey = this.contentCache.keys().next().value;
+        if (oldestKey) {
+          this.contentCache.delete(oldestKey);
+        }
+      }
+      this.contentCache.set(id, { content, timestamp: Date.now() });
 
       if (!this.meta.lyrics[id]) {
         this.meta.lyrics[id] = {
@@ -195,6 +220,8 @@ export class LocalLyricCache {
   }
 
   async deleteCache(id: string): Promise<boolean> {
+    this.contentCache.delete(id);
+    
     try {
       const filePath = this.getCacheFilePath(id);
       await unlink(filePath);
@@ -230,6 +257,7 @@ export class LocalLyricCache {
       if (now - meta.lastPlayedAt > inactiveThreshold) {
         try {
           await unlink(this.getCacheFilePath(id));
+          this.contentCache.delete(id);
           delete this.meta.lyrics[id];
           cleaned++;
           logger.info(`Removed inactive lyric cache for ${id}`);
