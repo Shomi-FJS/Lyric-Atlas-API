@@ -113,6 +113,34 @@
 
 - `GET /api/lyrics/meta?id=449818741`
 
+### `GET /api/ncm-lyrics/:id.ttml`
+
+直接获取 TTML 格式的歌词文件，返回纯文本 XML 内容。
+
+**路径参数:**
+
+- `id` ( **必需** ): 网易云音乐歌曲的数字 ID，需以 `.ttml` 结尾。
+
+**响应:**
+
+- **成功 (200 OK):** 返回 `application/xml` 格式的 TTML 内容。
+- **未找到 (404 Not Found):** 返回纯文本 `TTML lyrics not found`。
+- **客户端错误 (400 Bad Request):** 返回纯文本 `Invalid song ID`。
+
+**示例请求:**
+
+- `GET /api/ncm-lyrics/449818741.ttml`
+
+## 快速参考
+
+| 用途 | 端点 | 示例 |
+|------|------|------|
+| 搜索歌词 (JSON) | `/api/search?id=xxx` | `/api/search?id=449818741` |
+| 只获取 TTML (JSON) | `/api/search?id=xxx&fixedVersion=ttml` | `/api/search?id=449818741&fixedVersion=ttml` |
+| 直接下载 TTML 文件 | `/api/ncm-lyrics/xxx.ttml` | `/api/ncm-lyrics/449818741.ttml` |
+| 检查歌词元数据 | `/api/lyrics/meta?id=xxx` | `/api/lyrics/meta?id=449818741` |
+| 缓存管理界面 | `http://localhost:8300` | - |
+
 ## 数据来源
 
 1. **主要来源:** [Steve-XMH/amll-ttml-db](https://github.com/Steve-XMH/amll-ttml-db) GitHub 仓库 (`/ncm-lyrics` 目录)。
