@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Lyric Cache Administration System - Manage local lyric cache and development mode / 歌词缓存管理系统 - 管理本地歌词缓存与开发模式">
+  <meta name="theme-color" content="#A55EEA">
+  <title>用户歌词缓存管理</title>
+  
+  <link rel="preconnect" href="https://fonts.loli.net">
+  <link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+  <link rel="preload" href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=VT323&display=swap" as="style">
+  <link href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=VT323&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/css/variables.css">
+  <link rel="stylesheet" href="/css/reset.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/responsive.css">
+  
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to main content / 跳转到主要内容</a>
+  
+  <header class="header" role="banner">
+    <div class="container">
+      <div class="header__content">
+        <div class="flex items-center gap-4">
+          <img src="/favicon.ico" alt="Logo" class="header__logo" width="48" height="48">
+          <div>
+            <h1 class="header__title" data-i18n="app.title">歌词缓存管理系统</h1>
+            <p class="header__subtitle" data-i18n="app.subtitle">管理本地歌词缓存与开发模式</p>
+          </div>
+        </div>
+        
+        <div class="flex items-center gap-4">
+          <button 
+            class="language-toggle" 
+            id="languageToggle" 
+            aria-label="Switch language / 切换语言"
+            type="button"
+          >
+            <span class="language-toggle__flag" id="languageFlag">🇨🇳</span>
+            <span id="languageLabel">中文</span>
+          </button>
+          
+          <button 
+            class="theme-toggle" 
+            id="themeToggle" 
+            aria-label="Toggle theme / 切换主题"
+            type="button"
+          >
+            <span class="theme-toggle__icon" id="themeIcon">☀️</span>
+          </button>
+          
+          <div class="dev-mode-toggle" role="region" aria-labelledby="devModeLabel">
+            <span class="toggle__label" id="devModeLabel">
+              <span data-i18n="devMode.label">轴词实时预览</span>
+            </span>
+            <button 
+              class="toggle" 
+              id="devModeSwitch" 
+              role="switch" 
+              aria-checked="false"
+              aria-label="Toggle development mode / 切换开发模式"
+              type="button"
+            >
+              <span class="toggle__switch">
+                <span class="toggle__knob"></span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+  
+  <main id="main-content" class="container" role="main">
+    <nav class="tabs" role="tablist" aria-label="Main navigation / 主导航">
+      <button 
+        class="tab tab--active" 
+        role="tab" 
+        id="tab-cache" 
+        aria-selected="true" 
+        aria-controls="panel-cache"
+        data-tab="cache"
+        type="button"
+      >
+        <span data-i18n="tabs.cache">📦 缓存管理</span>
+      </button>
+      <button 
+        class="tab" 
+        role="tab" 
+        id="tab-dev" 
+        aria-selected="false" 
+        aria-controls="panel-dev"
+        data-tab="dev"
+        type="button"
+      >
+        <span data-i18n="tabs.dev">🔧 开发文件</span>
+      </button>
+      <button 
+        class="tab" 
+        role="tab" 
+        id="tab-upload" 
+        aria-selected="false" 
+        aria-controls="panel-upload"
+        data-tab="upload"
+        type="button"
+      >
+        <span data-i18n="tabs.upload">⬆️ 上传歌词</span>
+      </button>
+    </nav>
+    
+    <section 
+      id="panel-cache" 
+      class="tab-content tab-content--active" 
+      role="tabpanel" 
+      aria-labelledby="tab-cache"
+    >
+      <div class="stat-grid" role="region" aria-label="Cache statistics / 缓存统计">
+        <article class="stat-card">
+          <div class="stat-card__value" id="totalFiles" aria-live="polite">-</div>
+          <div class="stat-card__label" data-i18n="stats.totalFiles">缓存文件数</div>
+        </article>
+        <article class="stat-card stat-card--size">
+          <div class="stat-card__value" id="totalSize" aria-live="polite">-</div>
+          <div class="stat-card__label" data-i18n="stats.totalSize">总大小</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-card__value" id="totalPlays" aria-live="polite">-</div>
+          <div class="stat-card__label" data-i18n="stats.totalPlays">总播放次数</div>
+        </article>
+      </div>
+      
+      <article class="card">
+        <header class="card__header">
+          <h2 class="card__title" data-i18n="cache.listTitle">缓存文件列表</h2>
+          <button 
+            class="btn btn--primary btn--sm" 
+            id="refreshCacheBtn"
+            aria-label="Refresh cache list / 刷新缓存列表"
+            type="button"
+          >
+            🔄 <span data-i18n="common.refresh">刷新</span>
+          </button>
+        </header>
+        <div id="cacheList" class="table-container" role="region" aria-live="polite" aria-label="Cache files list / 缓存文件列表">
+          <div class="loading" role="status">
+            <div class="spinner" aria-hidden="true"></div>
+            <span class="sr-only" data-i18n="common.loading">Loading... / 加载中...</span>
+          </div>
+        </div>
+      </article>
+    </section>
+    
+    <section 
+      id="panel-dev" 
+      class="tab-content" 
+      role="tabpanel" 
+      aria-labelledby="tab-dev"
+      hidden
+    >
+      <article class="card">
+        <header class="card__header">
+          <h2 class="card__title" data-i18n="dev.listTitle">开发文件列表 (lyrics-dev)</h2>
+          <span class="card__count" id="devCount">0 <span data-i18n="dev.fileCount">个文件</span></span>
+        </header>
+        <div id="devList" class="table-container" role="region" aria-live="polite" aria-label="Development files list / 开发文件列表">
+          <div class="loading" role="status">
+            <div class="spinner" aria-hidden="true"></div>
+            <span class="sr-only" data-i18n="common.loading">Loading... / 加载中...</span>
+          </div>
+        </div>
+      </article>
+    </section>
+    
+    <section 
+      id="panel-upload" 
+      class="tab-content" 
+      role="tabpanel" 
+      aria-labelledby="tab-upload"
+      hidden
+    >
+      <article class="card">
+        <header class="card__header">
+          <h2 class="card__title" data-i18n="upload.cacheTitle">上传歌词到缓存</h2>
+        </header>
+        
+        <div 
+          class="upload-area" 
+          id="uploadArea" 
+          role="button"
+          tabindex="0"
+          aria-label="Click or drag to upload TTML file / 点击或拖拽上传TTML文件"
+        >
+          <div class="upload-area__icon" aria-hidden="true">📄</div>
+          <p class="upload-area__text" data-i18n="upload.clickOrDrag">点击或拖拽 TTML 文件到此处上传</p>
+          <p class="upload-area__hint" data-i18n="upload.autoDetect">支持自动从TTML文件解析网易云ID</p>
+          <input 
+            type="file" 
+            id="fileInput" 
+            class="upload-area__input" 
+            accept=".ttml,.xml"
+            aria-describedby="uploadHint"
+          >
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" for="uploadId">
+            <span data-i18n="upload.songId">歌曲 ID (网易云)</span>
+            <span class="text-muted" data-i18n="upload.songIdHint"> - 可选，留空自动解析</span>
+          </label>
+          <input 
+            type="text" 
+            id="uploadId" 
+            class="form-input" 
+            placeholder="留空将自动从TTML文件解析"
+            aria-describedby="uploadIdHint"
+          >
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" for="selectedFile" data-i18n="upload.selectedFile">选中的文件</label>
+          <input 
+            type="text" 
+            id="selectedFile" 
+            class="form-input" 
+            readonly 
+            placeholder="未选择文件"
+          >
+        </div>
+        
+        <button 
+          class="btn btn--primary" 
+          id="uploadToCacheBtn"
+          type="button"
+        >
+          <span data-i18n="upload.toCache">上传到缓存</span>
+        </button>
+      </article>
+      
+      <article class="card mt-6">
+        <header class="card__header">
+          <h2 class="card__title" data-i18n="upload.devTitle">上传到开发文件夹</h2>
+        </header>
+        
+        <div 
+          class="upload-area" 
+          id="devUploadArea" 
+          role="button"
+          tabindex="0"
+          aria-label="Click or drag to upload TTML file to dev folder / 点击或拖拽上传TTML文件到开发文件夹"
+        >
+          <div class="upload-area__icon" aria-hidden="true">🔧</div>
+          <p class="upload-area__text" data-i18n="upload.clickOrDrag">点击或拖拽 TTML 文件到此处上传</p>
+          <p class="upload-area__hint" data-i18n="upload.autoDetect">支持自动从TTML文件解析网易云ID</p>
+          <input 
+            type="file" 
+            id="devFileInput" 
+            class="upload-area__input" 
+            accept=".ttml,.xml"
+          >
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" for="devUploadId">
+            <span data-i18n="upload.songId">歌曲 ID (网易云)</span>
+            <span class="text-muted" data-i18n="upload.songIdHint"> - 可选，留空自动解析</span>
+          </label>
+          <input 
+            type="text" 
+            id="devUploadId" 
+            class="form-input" 
+            placeholder="留空将自动从TTML文件解析"
+          >
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" for="devSelectedFile" data-i18n="upload.selectedFile">选中的文件</label>
+          <input 
+            type="text" 
+            id="devSelectedFile" 
+            class="form-input" 
+            readonly 
+            placeholder="未选择文件"
+          >
+        </div>
+        
+        <button 
+          class="btn btn--primary" 
+          id="uploadToDevBtn"
+          type="button"
+        >
+          <span data-i18n="upload.toDev">上传到开发文件夹</span>
+        </button>
+      </article>
+    </section>
+  </main>
+  
+  <div class="toast-container" id="toastContainer" role="region" aria-label="Notifications / 通知" aria-live="polite"></div>
+  
+  <div 
+    class="modal-overlay" 
+    id="confirmModal" 
+    role="dialog" 
+    aria-modal="true" 
+    aria-labelledby="modalTitle"
+    aria-describedby="modalMessage"
+  >
+    <div class="modal">
+      <div class="modal__icon" id="modalIcon" aria-hidden="true">⚠️</div>
+      <h2 class="modal__title" id="modalTitle">确认删除</h2>
+      <p class="modal__message" id="modalMessage">确定要删除此缓存文件吗？此操作无法撤销。</p>
+      <div class="modal__actions">
+        <button 
+          class="btn btn--secondary" 
+          id="modalCancelBtn"
+          type="button"
+        >
+          <span data-i18n="common.cancel">取消</span>
+        </button>
+        <button 
+          class="btn btn--danger" 
+          id="modalConfirmBtn"
+          type="button"
+        >
+          <span data-i18n="common.confirmDelete">确认删除</span>
+        </button>
+      </div>
+    </div>
+  </div>
+  
+  <script src="/js/i18n.js"></script>
+  <script src="/js/utils.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

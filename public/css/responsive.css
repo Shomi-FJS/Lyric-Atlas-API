@@ -1,0 +1,335 @@
+@media (max-width: 480px) {
+  :root {
+    --text-4xl: 1.75rem;
+    --text-3xl: 1.5rem;
+    --text-2xl: 1.25rem;
+    --text-xl: 1.125rem;
+    --shadow-offset: 4px;
+    --border-thick: 3px;
+  }
+  
+  .container {
+    padding: 0 var(--space-3);
+  }
+  
+  .header {
+    padding: var(--space-4) 0;
+  }
+  
+  .header__content {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+  
+  .dev-mode-toggle {
+    justify-content: center;
+  }
+  
+  .tabs {
+    overflow-x: auto;
+    padding-bottom: var(--space-2);
+    margin-bottom: var(--space-4);
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .tab {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-xs);
+    flex-shrink: 0;
+  }
+  
+  .card {
+    padding: var(--space-4);
+  }
+  
+  .card__header {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+  
+  .stat-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+  
+  .stat-card {
+    padding: var(--space-4);
+  }
+  
+  .stat-card__value {
+    font-size: var(--text-3xl);
+  }
+  
+  .table th,
+  .table td {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-xs);
+  }
+  
+  .table__song-name,
+  .table__song-artists {
+    max-width: 120px;
+  }
+  
+  .btn {
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-xs);
+  }
+  
+  .btn--lg {
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-sm);
+  }
+  
+  .upload-area {
+    padding: var(--space-6);
+  }
+  
+  .upload-area__icon {
+    font-size: 2rem;
+  }
+  
+  .modal {
+    padding: var(--space-4);
+    margin: var(--space-4);
+  }
+  
+  .modal__actions {
+    flex-direction: column;
+  }
+  
+  .modal__actions .btn {
+    width: 100%;
+  }
+  
+  .toast-container {
+    left: var(--space-3);
+    right: var(--space-3);
+    top: var(--space-3);
+  }
+  
+  .toast {
+    min-width: auto;
+    max-width: none;
+  }
+  
+  .empty-state {
+    padding: var(--space-10) var(--space-3);
+  }
+  
+  .empty-state__icon {
+    font-size: 3rem;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 767px) {
+  .container {
+    padding: 0 var(--space-4);
+  }
+  
+  .header__content {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+  
+  .dev-mode-toggle {
+    justify-content: center;
+  }
+  
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .table__song-name,
+  .table__song-artists {
+    max-width: 150px;
+  }
+  
+  .modal__actions {
+    flex-direction: column;
+  }
+  
+  .modal__actions .btn {
+    width: 100%;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .container {
+    padding: 0 var(--space-6);
+  }
+  
+  .stat-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .table__song-name,
+  .table__song-artists {
+    max-width: 180px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .container {
+    padding: 0 var(--space-8);
+  }
+  
+  .header__content {
+    flex-direction: row;
+    text-align: left;
+  }
+  
+  .stat-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .table__song-name,
+  .table__song-artists {
+    max-width: 220px;
+  }
+}
+
+@media (min-width: 1440px) {
+  .container {
+    max-width: 1400px;
+  }
+  
+  .stat-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-6);
+  }
+  
+  .stat-card {
+    padding: var(--space-6);
+  }
+  
+  .stat-card__value {
+    font-size: 2.5rem;
+  }
+}
+
+@media (min-width: 1920px) {
+  :root {
+    --text-base: 1.125rem;
+    --text-sm: 1rem;
+    --text-xs: 0.875rem;
+    --shadow-offset: 8px;
+    --shadow-offset-lg: 12px;
+  }
+  
+  .container {
+    max-width: 1600px;
+  }
+  
+  .card {
+    padding: var(--space-8);
+  }
+  
+  .table th,
+  .table td {
+    padding: var(--space-4) var(--space-5);
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .btn,
+  .tab,
+  .toggle,
+  .upload-area,
+  .card,
+  .stat-card {
+    min-height: 44px;
+  }
+  
+  .btn--icon {
+    width: 44px;
+    height: 44px;
+  }
+  
+  .table tbody tr:hover {
+    background: transparent;
+  }
+  
+  .card:hover {
+    transform: none;
+    box-shadow: var(--shadow-offset) var(--shadow-offset) 0px var(--color-border);
+  }
+  
+  .stat-card:hover {
+    transform: none;
+    box-shadow: var(--shadow-offset) var(--shadow-offset) 0px var(--color-border);
+  }
+  
+  .btn:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  .spinner {
+    animation: none;
+    border-top-color: var(--color-purple);
+  }
+}
+
+@supports not (backdrop-filter: blur(12px)) {
+  .card,
+  .modal-overlay,
+  .toast {
+    background: var(--color-surface);
+  }
+  
+  .modal-overlay {
+    background: rgba(0, 0, 0, 0.9);
+  }
+}
+
+@media print {
+  .header,
+  .tabs,
+  .btn,
+  .toast-container,
+  .modal-overlay,
+  .upload-area {
+    display: none !important;
+  }
+  
+  body {
+    background: white;
+    color: black;
+  }
+  
+  body::before {
+    display: none;
+  }
+  
+  .card {
+    box-shadow: none;
+    border: 1px solid #ccc;
+    break-inside: avoid;
+  }
+  
+  .table {
+    width: 100%;
+  }
+  
+  .table th,
+  .table td {
+    border: 1px solid #ccc;
+  }
+}
