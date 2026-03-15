@@ -5,6 +5,10 @@
 # build
 dist/
 
+# server runtime
+.server.pid
+server.log
+
 # local cache
 lyrics-cache/
 lyrics-dev/
@@ -37,3 +41,4 @@ lerna-debug.log*
 .DS_Store
 
 .vercel
+Lyric-Atlas-API.zip
