@@ -147,10 +147,10 @@ const ui = {
       <tr>
         <td class="table__id">${file.id}</td>
         <td>${songInfo}</td>
-        <td>${utils.formatNumber(file.playCount)}</td>
+        <td class="table__play-count">${utils.formatNumber(file.playCount)}</td>
         <td class="table__size">${utils.formatSize(file.size)}</td>
         <td>${sourceBadge}</td>
-        <td>${utils.formatDate(file.lastPlayedAt)}</td>
+        <td class="table__last-played">${utils.formatDate(file.lastPlayedAt)}</td>
         <td>
           <div class="flex gap-2">
             <button class="btn btn--primary btn--sm" onclick="app.viewCache('${file.id}')" aria-label="View file ${file.id}">
@@ -206,7 +206,7 @@ const ui = {
         <td class="table__id">${file.id}</td>
         <td>${songInfo}</td>
         <td class="table__size">${utils.formatSize(file.size)}</td>
-        <td>${utils.formatDate(file.modifiedAt)}</td>
+        <td class="table__last-played">${utils.formatDate(file.modifiedAt)}</td>
         <td>
           <div class="flex gap-2">
             <button class="btn btn--primary btn--sm" onclick="app.viewDevFile('${file.id}')" aria-label="View file ${file.id}">

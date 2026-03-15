@@ -550,6 +550,46 @@
   font-weight: var(--font-bold);
 }
 
+[data-theme="dark"] .toggle__label {
+  color: #E8DCC4;
+}
+
+[data-theme="dark"] .card__title {
+  color: #E8DCC4;
+}
+
+[data-theme="dark"] .table__song-name {
+  color: #E8DCC4;
+}
+
+[data-theme="dark"] .table__play-count,
+[data-theme="dark"] .table__size,
+[data-theme="dark"] .table__last-played {
+  color: #E8DCC4;
+}
+
+[data-theme="dark"] .stat-card:nth-child(1):hover { 
+  background: #c45c39;
+  border-color: #e86450;
+}
+[data-theme="dark"] .stat-card:nth-child(2):hover { 
+  background: #c45c39;
+  border-color: #e86450;
+}
+[data-theme="dark"] .stat-card:nth-child(3):hover { 
+  background: #c45c39;
+  border-color: #e86450;
+  color: white;
+}
+[data-theme="dark"] .stat-card:nth-child(3):hover .stat-card__value,
+[data-theme="dark"] .stat-card:nth-child(3):hover .stat-card__label {
+  color: white;
+}
+[data-theme="dark"] .stat-card:nth-child(4):hover { 
+  background: var(--color-cyan);
+  border-color: #a8987a;
+}
+
 .upload-area {
   border: var(--border-thick) dashed var(--color-border);
   padding: var(--space-8);
@@ -781,6 +821,10 @@
   font-weight: var(--font-bold);
 }
 
+[data-theme="dark"] .header__title {
+  color: #E8DCC4;
+}
+
 .header__subtitle {
   font-size: var(--text-sm);
   color: var(--color-text-light);
@@ -866,13 +910,13 @@
 }
 
 [data-theme="dark"] .btn--primary {
-  background: #F4D03F;
-  color: #1A1814;
+  background: #1b6e26;
+  color: #ffd0d0;
 }
 
 [data-theme="dark"] .btn--primary:hover:not(:disabled) {
-  background: #F5B041;
-  color: #1A1814;
+  background: #1a5e20;
+  color: #ffd0d0;
 }
 
 [data-theme="dark"] .btn--secondary {
@@ -886,13 +930,13 @@
 }
 
 [data-theme="dark"] .btn--danger {
-  background: #E74C3C;
-  color: #FFFFFF;
+  background: #1e0c0a;
+  color: #ff2727;
 }
 
 [data-theme="dark"] .btn--danger:hover:not(:disabled) {
-  background: #CB4335;
-  color: #FFFFFF;
+  background: #2a1510;
+  color: #ff2727;
 }
 
 [data-theme="dark"] .btn--ghost {
@@ -902,7 +946,7 @@
 
 [data-theme="dark"] .btn--ghost:hover:not(:disabled) {
   background: #4D4A46;
-  color: #E8DCC4;
+  color: #e8dcc4;
 }
 
 [data-theme="dark"] .tab--active {
