@@ -13,6 +13,7 @@ import type { LyricProviderOptions } from './interfaces/lyricTypes';
 import { lyricsCache } from './cache';
 import { localLyricCache } from './localLyricCache';
 import { isDevModeEnabled, getDevLyric } from './devMode';
+import { cancelPendingRequest, createPendingRequest, removePendingRequest } from './requestDedupe';
 
 // Get logger instance using our custom logger
 const logger = getLogger('LyricService');
@@ -83,6 +84,9 @@ export class LyricProvider {
     const { fixedVersion: fixedVersionRaw, fallback: fallbackQuery, fast, signal } = options;
     const fixedVersionQuery = fixedVersionRaw?.toLowerCase();
     logger.info(logger.msg('provider.processing', { id, format: fixedVersionQuery || 'auto', fallback: fallbackQuery || 'none' }));
+
+    // 应用层请求去重：新请求取消旧请求
+    cancelPendingRequest(id);
 
     this.checkAborted(signal);
 
@@ -157,6 +161,9 @@ export class LyricProvider {
       logger.warn(logger.msg('provider.timeout', { timeout: TOTAL_TIMEOUT_MS }));
       controller.abort(new Error(`Search timed out after ${TOTAL_TIMEOUT_MS}ms`));
     }, TOTAL_TIMEOUT_MS);
+
+    // 应用层请求去重：新请求取消旧请求
+    cancelPendingRequest(id);
 
     try {
       // 创建组合中断信号：HTTP请求中断 + 全局超时
