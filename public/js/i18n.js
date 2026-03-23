@@ -7,7 +7,8 @@ const translations = {
     tabs: {
       cache: '📦 缓存管理',
       dev: '🔧 开发文件',
-      upload: '⬆️ 上传歌词'
+      upload: '⬆️ 上传歌词',
+      settings: '⚙️ 设置'
     },
     devMode: {
       label: '轴词实时预览',
@@ -104,7 +105,8 @@ const translations = {
     tabs: {
       cache: '📦 Cache',
       dev: '🔧 Dev Files',
-      upload: '⬆️ Upload'
+      upload: '⬆️ Upload',
+      settings: '⚙️ Settings'
     },
     devMode: {
       label: 'Dev Preview',

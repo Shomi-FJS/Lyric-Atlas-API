@@ -25,7 +25,7 @@ export async function checkResourceExists(
     
     for (let attempt = 0; attempt <= retries; attempt++) {
       if (attempt > 0) {
-        logger.debug(`Retry ${attempt}/${retries} for ${url}`);
+        logger.debug(logger.msg('httpclient.retry', { attempt, retries, url }));
       }
       
       try {
@@ -55,7 +55,7 @@ export async function checkResourceExists(
         }
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        logger.debug(`Request failed for ${url}: ${lastError.message}`);
+        logger.debug(logger.msg('httpclient.request_failed', { url, message: lastError.message }));
         
         // 如果是超时错误，标记为AbortError
         if (lastError.name === 'AbortError') {
@@ -96,7 +96,7 @@ export async function fetchContent(
     
     for (let attempt = 0; attempt <= retries; attempt++) {
       if (attempt > 0) {
-        logger.debug(`Retry ${attempt}/${retries} for ${url}`);
+        logger.debug(logger.msg('httpclient.retry', { attempt, retries, url }));
       }
       
       try {
@@ -127,7 +127,7 @@ export async function fetchContent(
         }
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
-        logger.debug(`Fetch failed for ${url}: ${lastError.message}`);
+        logger.debug(logger.msg('httpclient.fetch_failed', { url, message: lastError.message }));
         
         // 如果是超时错误，标记为AbortError
         if (lastError.name === 'AbortError') {

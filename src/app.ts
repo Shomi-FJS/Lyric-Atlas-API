@@ -14,14 +14,14 @@ const apiLogger = getLogger('API');
 
 const EXTERNAL_API_BASE_URL = process?.env?.EXTERNAL_NCM_API_URL;
 if (!EXTERNAL_API_BASE_URL) {
-  apiLogger.warn('EXTERNAL_NCM_API_URL is not set. External API fallback will be unavailable.');
+  apiLogger.warn(apiLogger.msg('api.external_url_not_set'));
 }
 
 let _lyricProviderSingleton: LyricProvider | null = null;
 function getLyricProvider(): LyricProvider {
   if (!_lyricProviderSingleton) {
     _lyricProviderSingleton = new LyricProvider(EXTERNAL_API_BASE_URL);
-    apiLogger.info('LyricProvider singleton initialized.');
+    apiLogger.info(apiLogger.msg('api.provider_init'));
   }
   return _lyricProviderSingleton;
 }
@@ -29,7 +29,7 @@ function getLyricProvider(): LyricProvider {
 // 预初始化
 setupCacheCleanup();
 localLyricCache.init().catch((err) => {
-  apiLogger.error('Failed to initialize local lyric cache:', err);
+  apiLogger.error(apiLogger.msg('localcache.init_failed'), err);
 });
 
 const app = new Hono().basePath('/api');
@@ -68,7 +68,7 @@ app.get('/search', async (c: Context) => {
     return c.json({ found: false, id, error: 'Server configuration error.' });
   }
 
-  apiLogger.info(`Search request - ID: ${id}, Fixed: ${fixedVersionRaw}, Fallback: ${fallbackQuery}, Fast: ${fast}`);
+  apiLogger.info(apiLogger.msg('api.search_request', { id, format: fixedVersionRaw || 'auto', fallback: fallbackQuery, fast: fast ? '是' : '否' }));
 
   try {
     const lyricProvider = getLyricProvider();
@@ -80,18 +80,18 @@ app.get('/search', async (c: Context) => {
     });
 
     if (result.found) {
-      apiLogger.info(`Lyrics found for ID: ${id} - Format: ${result.format}, Source: ${result.source}`);
+      apiLogger.info(apiLogger.msg('api.found', { id, format: result.format, source: result.source }));
       return c.json(result);
     } else {
       const statusCode = result.statusCode || 404;
       c.status(statusCode as any);
-      apiLogger.info(`Lyrics not found for ID: ${id} - Status: ${statusCode}, Error: ${result.error}`);
+      apiLogger.info(apiLogger.msg('api.not_found', { id, status: statusCode, error: result.error }));
       return c.json(result);
     }
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown processing error';
-    apiLogger.error(`Unexpected error during search for ID: ${id} - ${errorMessage}`, error);
+    apiLogger.error(apiLogger.msg('api.search_error', { id, message: errorMessage }), error);
     c.status(500);
     return c.json({ found: false, id, error: `Failed to process lyric request: ${errorMessage}` });
   }
@@ -118,7 +118,7 @@ app.get('/lyrics/meta', async (c) => {
     });
   }
 
-  apiLogger.info(`Received metadata request for ID: ${id}, Fast: ${fast}`);
+  apiLogger.info(apiLogger.msg('api.metadata_request', { id, fast }));
 
   try {
     const result: LyricMetadataResult = await getLyricMetadata(id, {
@@ -128,20 +128,20 @@ app.get('/lyrics/meta', async (c) => {
 
     if (result.found) {
       c.header('Cache-Control', 'public, max-age=1800');
-      apiLogger.info(`Found metadata for ID: ${id}, Formats: ${result.availableFormats.join(', ')}`);
+      apiLogger.info(apiLogger.msg('api.metadata_found', { id, formats: result.availableFormats.join(', ') }));
       return c.json(result);
     } else {
       const statusCode = result.statusCode || 404;
       c.status(statusCode as any);
-      apiLogger.warn(`Metadata not found or error for ID: ${id}. Status: ${statusCode}, Error: ${result.error}`);
+      apiLogger.warn(apiLogger.msg('api.metadata_not_found', { id, status: statusCode, error: result.error }));
       return c.json(result);
     }
 
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    apiLogger.error({ msg: `Unexpected error during API metadata handler for ID: ${id}`, error: err.message, stack: err.stack });
+    apiLogger.error(apiLogger.msg('api.metadata_handler_error', { id, message: err.message }), err.stack);
     c.status(500);
-    return c.json({ found: false, id, error: `Failed to process lyric metadata request: ${err.message}` });
+    return c.json({ found: false, id, error: `处理歌词元数据请求失败: ${err.message}` });
   }
 });
 
@@ -169,7 +169,7 @@ app.get('/ncm-lyrics/:id', async (c) => {
 
     const ifNoneMatch = c.req.header('If-None-Match');
     if (ifNoneMatch === `"${contentHash}"`) {
-      apiLogger.info(`TTML 304 Not Modified for ID: ${songId}`);
+      apiLogger.info(apiLogger.msg('api.ttml_304', { id: songId }));
       return new Response(null, { status: 304 });
     }
 
@@ -179,7 +179,7 @@ app.get('/ncm-lyrics/:id', async (c) => {
     return c.text(content);
   }
 
-  apiLogger.info(`TTML direct access request for ID: ${songId}`);
+  apiLogger.info(apiLogger.msg('api.ttml_request', { id: songId }));
 
   try {
     const lyricProvider = getLyricProvider();
@@ -191,7 +191,7 @@ app.get('/ncm-lyrics/:id', async (c) => {
 
       const ifNoneMatch = c.req.header('If-None-Match');
       if (ifNoneMatch === `"${contentHash}"`) {
-        apiLogger.info(`TTML 304 Not Modified for ID: ${songId}`);
+        apiLogger.info(apiLogger.msg('api.ttml_304', { id: songId }));
         return new Response(null, { status: 304 });
       }
 
@@ -205,7 +205,7 @@ app.get('/ncm-lyrics/:id', async (c) => {
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    apiLogger.error(`Error fetching TTML for ID: ${songId} - ${errorMessage}`);
+    apiLogger.error(apiLogger.msg('api.ttml_fetch_error', { id: songId, message: errorMessage }));
     c.status(500);
     return c.text('Internal server error');
   }

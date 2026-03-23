@@ -1,0 +1,7 @@
+- [x] RepositoryFetcher.fetch 方法不再检查本地缓存
+- [x] RepositoryFetcher.fetch 方法不再调用 recordPlay
+- [x] RepositoryFetcher.fetch 方法不再写入缓存
+- [x] lyricService.search 只调用一次 recordPlay
+- [x] lyricService.search 在远程查询前检查本地缓存
+- [x] TTML 获取成功后正确写入本地缓存
+- [x] pnpm run build 通过

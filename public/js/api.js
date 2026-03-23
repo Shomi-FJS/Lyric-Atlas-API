@@ -113,6 +113,18 @@ const api = {
       body: JSON.stringify({ enabled })
     });
   },
+
+  async rebuildMeta() {
+    return this.request('/cache/rebuild-meta', { method: 'POST' });
+  },
+
+  async updateRemote() {
+    return this.request('/cache/update-remote', { method: 'POST' });
+  },
+
+  async rebuildFromIds() {
+    return this.request('/cache/rebuild-from-ids', { method: 'POST' });
+  },
   
   async getDevList() {
     return this.request('/dev/list');

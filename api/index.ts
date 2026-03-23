@@ -27,7 +27,7 @@ export const config = {
 // 一次性读取环境变量，缓存为常量
 const EXTERNAL_API_BASE_URL = process?.env?.EXTERNAL_NCM_API_URL;
 if (!EXTERNAL_API_BASE_URL) {
-  apiLogger.warn('EXTERNAL_NCM_API_URL is not set in environment. External API fallback will be unavailable.');
+  apiLogger.warn(apiLogger.msg('api.external_url_not_set'));
 }
 
 // 单例 LyricProvider：复用 repoFetcher 和 externalFetcher
@@ -35,7 +35,7 @@ let _lyricProviderSingleton: LyricProvider | null = null;
 function getLyricProvider(): LyricProvider {
   if (!_lyricProviderSingleton) {
     _lyricProviderSingleton = new LyricProvider(EXTERNAL_API_BASE_URL);
-    apiLogger.info('LyricProvider singleton initialized.');
+    apiLogger.info(apiLogger.msg('api.provider_init'));
   }
   return _lyricProviderSingleton;
 }
@@ -44,7 +44,7 @@ function getLyricProvider(): LyricProvider {
 setupCacheCleanup();
 localLyricCache.init().catch((err) => {
   // Edge Runtime 下 fs 不可用，静默忽略
-  apiLogger.debug(`Local cache init skipped (expected on Edge Runtime): ${err}`);
+  apiLogger.debug(apiLogger.msg('localcache.init_skipped', { message: String(err) }));
 });
 
 // --- App Setup ---
@@ -119,7 +119,7 @@ app.get('/search', async (c: Context) => {
       apiLogger.info(apiLogger.msg('api.aborted', { id }));
       return new Response(null, { status: 499 });
     }
-    apiLogger.error(`搜索时发生意外错误 ID: ${id} - ${errorMessage}`, error);
+    apiLogger.error(apiLogger.msg('api.search_error', { id, message: errorMessage }), error);
     c.status(500);
     return c.json({ found: false, id, error: `处理歌词请求失败: ${errorMessage}` });
   }
@@ -147,7 +147,7 @@ app.get('/lyrics/meta', async (c) => {
     });
   }
 
-  apiLogger.info(`Received metadata request for ID: ${id}, Fast: ${fast}`);
+  apiLogger.info(apiLogger.msg('api.metadata_request', { id, fast }));
 
   try {
     const result: LyricMetadataResult = await getLyricMetadata(id, {
@@ -157,26 +157,27 @@ app.get('/lyrics/meta', async (c) => {
 
     if (result.found) {
       c.header('Cache-Control', 'public, max-age=1800');
-      apiLogger.info(`Found metadata for ID: ${id}, Formats: ${result.availableFormats.join(', ')}`);
+      apiLogger.info(apiLogger.msg('api.metadata_found', { id, formats: result.availableFormats.join(', ') }));
       return c.json(result);
     } else {
       const statusCode = result.statusCode || 404;
       c.status(statusCode as any);
-      apiLogger.warn(`Metadata not found or error for ID: ${id}. Status: ${statusCode}, Error: ${result.error}`);
+      apiLogger.warn(apiLogger.msg('api.metadata_not_found', { id, status: statusCode, error: result.error }));
       return c.json(result);
     }
 
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    apiLogger.error({ msg: `Unexpected error during API metadata handler for ID: ${id}`, error: err.message, stack: err.stack });
+    apiLogger.error(apiLogger.msg('api.metadata_handler_error', { id, message: err.message }), err.stack);
     c.status(500);
-    return c.json({ found: false, id, error: `Failed to process lyric metadata request: ${err.message}` });
+    return c.json({ found: false, id, error: `处理歌词元数据请求失败: ${err.message}` });
   }
 });
 
 // TTML direct access endpoint (with ETag 304 support)
 app.get('/ncm-lyrics/:id', async (c) => {
   const id = c.req.param('id');
+  const signal = c.req.raw.signal;
 
   if (!id.endsWith('.ttml')) {
     c.status(404);
@@ -200,7 +201,7 @@ app.get('/ncm-lyrics/:id', async (c) => {
     // ETag 条件请求：内容未变则返回 304，节省带宽
     const ifNoneMatch = c.req.header('If-None-Match');
     if (ifNoneMatch === `"${contentHash}"`) {
-      apiLogger.info(`TTML 304 Not Modified for ID: ${songId}`);
+      apiLogger.info(apiLogger.msg('api.ttml_304', { id: songId }));
       return new Response(null, { status: 304 });
     }
 
@@ -210,11 +211,11 @@ app.get('/ncm-lyrics/:id', async (c) => {
     return c.text(content);
   }
 
-  apiLogger.info(`TTML direct access request for ID: ${songId}`);
+  apiLogger.info(apiLogger.msg('api.ttml_request', { id: songId }));
 
   try {
     const lyricProvider = getLyricProvider();
-    const result = await lyricProvider.search(songId, { fixedVersion: 'ttml' });
+    const result = await lyricProvider.search(songId, { fixedVersion: 'ttml', signal });
 
     if (result.found && result.format === 'ttml') {
       const content = result.content;
@@ -223,7 +224,7 @@ app.get('/ncm-lyrics/:id', async (c) => {
       // ETag 条件请求
       const ifNoneMatch = c.req.header('If-None-Match');
       if (ifNoneMatch === `"${contentHash}"`) {
-        apiLogger.info(`TTML 304 Not Modified for ID: ${songId}`);
+        apiLogger.info(apiLogger.msg('api.ttml_304', { id: songId }));
         return new Response(null, { status: 304 });
       }
 
@@ -237,7 +238,7 @@ app.get('/ncm-lyrics/:id', async (c) => {
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    apiLogger.error(`Error fetching TTML for ID: ${songId} - ${errorMessage}`);
+    apiLogger.error(apiLogger.msg('api.ttml_fetch_error', { id: songId, message: errorMessage }));
     c.status(500);
     return c.text('Internal server error');
   }

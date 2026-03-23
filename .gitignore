@@ -41,3 +41,4 @@ lerna-debug.log*
 
 .vercel
 Lyric-Atlas-API.zip
+cache-meta.json

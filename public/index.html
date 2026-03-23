@@ -111,6 +111,17 @@
       >
         <span data-i18n="tabs.upload">⬆️ 上传歌词</span>
       </button>
+      <button 
+        class="tab" 
+        role="tab" 
+        id="tab-settings" 
+        aria-selected="false" 
+        aria-controls="panel-settings"
+        data-tab="settings"
+        type="button"
+      >
+        <span data-i18n="tabs.settings">⚙️ 设置</span>
+      </button>
     </nav>
     
     <section 
@@ -295,6 +306,66 @@
         >
           <span data-i18n="upload.toDev">上传到开发文件夹</span>
         </button>
+      </article>
+    </section>
+
+    <section 
+      id="panel-settings" 
+      class="tab-content" 
+      role="tabpanel" 
+      aria-labelledby="tab-settings"
+      hidden
+    >
+      <article class="card">
+        <header class="card__header">
+          <h2 class="card__title">⚙️ 系统设置</h2>
+        </header>
+
+        <div class="settings-section">
+          <h3 class="settings-section__title">元数据管理</h3>
+          <p class="settings-section__desc">扫描 lyrics-cache 目录中所有 TTML 文件，重新解析歌曲信息（歌名、歌手、专辑）并重建 cache-meta.json。会保留已有的播放次数记录。</p>
+          <div class="settings-section__actions">
+            <button 
+              class="btn btn--primary" 
+              id="rebuildMetaBtn"
+              type="button"
+            >
+              🔧 重建元数据索引
+            </button>
+          </div>
+          <div id="rebuildMetaResult" class="settings-result" hidden></div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section__title">缓存更新</h3>
+          <p class="settings-section__desc">从镜像源拉取最新 TTML 内容更新本地缓存。同时检查文件名与 TTML 内 <code>ncmMusicId</code> 是否一致，不一致时自动更正文件名。</p>
+          <div class="settings-section__actions">
+            <button 
+              class="btn btn--primary" 
+              id="updateRemoteBtn"
+              type="button"
+            >
+              🔄 从镜像源更新缓存
+            </button>
+            <button 
+              class="btn btn--secondary" 
+              id="rebuildFromIdsBtn"
+              type="button"
+            >
+              🔧 从 ncm-ids.json 重构
+            </button>
+          </div>
+          <div id="updateRemoteResult" class="settings-result" hidden></div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section__title">缓存统计</h3>
+          <div id="settingsCacheStats" class="settings-stats">
+            <div class="loading" role="status">
+              <div class="spinner" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
       </article>
     </section>
   </main>

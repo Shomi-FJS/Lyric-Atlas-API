@@ -61,6 +61,24 @@ export class LyricProvider {
     }
   }
 
+  private combineSignals(signal1?: AbortSignal, signal2?: AbortSignal): AbortSignal | undefined {
+    if (!signal1 && !signal2) return undefined;
+    if (!signal1) return signal2;
+    if (!signal2) return signal1;
+    
+    const controller = new AbortController();
+    
+    const abortHandler = () => controller.abort();
+    signal1.addEventListener('abort', abortHandler);
+    signal2.addEventListener('abort', abortHandler);
+    
+    if (signal1.aborted || signal2.aborted) {
+      controller.abort();
+    }
+    
+    return controller.signal;
+  }
+
   async search(id: string, options: LyricProviderOptions): Promise<SearchResult> {
     const { fixedVersion: fixedVersionRaw, fallback: fallbackQuery, fast, signal } = options;
     const fixedVersionQuery = fixedVersionRaw?.toLowerCase();
@@ -77,15 +95,21 @@ export class LyricProvider {
       }
     }
 
+    // 记录播放次数（用于触发缓存阈值机制）
+    await localLyricCache.recordPlay(id);
+
     // 本地文件缓存检查不受 fixedVersion 限制，确保已缓存的 TTML 始终被优先使用
-    const localCached = await localLyricCache.getCachedLyric(id);
+    // 优先走同步快速路径（内存命中时零 await 开销），miss 时再走异步文件读取
+    logger.debug(`检查本地缓存: ${id}`);
+    const localCached = localLyricCache.getCachedLyricSync(id) ?? await localLyricCache.getCachedLyric(id);
     this.checkAborted(signal);
     if (localCached) {
-      logger.info(logger.msg('localcache.cache_hit', { id }));
+      logger.info(logger.msg('provider.local_hit', { id }));
       const result: SearchResult = { found: true, id, format: 'ttml', source: 'repository', content: localCached };
       lyricsCache.set(`search:${id}:ttml:normalized`, result);
       return result;
     }
+    logger.debug(`本地缓存未命中: ${id}`);
 
     // 对 TTML 缓存键进行归一化，忽略 fallback/fast 参数差异，避免因参数微变导致缓存穿透
     const cacheKey = fixedVersionQuery === 'ttml'
@@ -93,9 +117,19 @@ export class LyricProvider {
       : `search:${id}:${fixedVersionQuery || 'none'}:${fallbackQuery || 'none'}:${fast ? 'fast' : 'full'}`;
     const cachedResult = lyricsCache.get(cacheKey);
     if (cachedResult) {
-      logger.info(`缓存命中 (搜索): ${id}`);
+      // lyricsCache 命中时，若为 TTML 且本地已有更新版本，优先返回本地版本
       if (cachedResult.found && cachedResult.format === 'ttml' && cachedResult.content) {
-        if (await localLyricCache.shouldCache(id)) {
+        const localVersion = localLyricCache.getCachedLyricSync(id);
+        if (localVersion) {
+          logger.info(logger.msg('provider.local_override_search', { id }));
+          const result: SearchResult = { found: true, id, format: 'ttml', source: 'repository', content: localVersion };
+          lyricsCache.set(`search:${id}:ttml:normalized`, result);
+          return result;
+        }
+      }
+      logger.info(logger.msg('provider.search_cache_hit', { id, key: cacheKey }));
+      if (cachedResult.found && cachedResult.format === 'ttml' && cachedResult.content) {
+        if (localLyricCache.shouldCache(id)) {
           const isCached = await localLyricCache.isCached(id);
           if (!isCached) {
             await localLyricCache.cacheLyric(id, cachedResult.content, 'main');
@@ -125,11 +159,14 @@ export class LyricProvider {
     }, TOTAL_TIMEOUT_MS);
 
     try {
-      const repoTask = this.findAllInRepo(id, fallbackQuery);
-      const externalApiTask = fast ? Promise.resolve(null as SearchResult | null) : this.findInExternalApi(id);
+      // 创建组合中断信号：HTTP请求中断 + 全局超时
+      const combinedSignal = this.combineSignals(signal, controller.signal);
+      
+      const repoTask = this.findAllInRepo(id, fallbackQuery, combinedSignal);
+      const externalApiTask = fast ? Promise.resolve(null as SearchResult | null) : this.findInExternalApi(id, combinedSignal);
 
       if (fast) {
-        logger.info(`快速模式已启用，跳过外部API回退`);
+        logger.info(logger.msg('provider.fast_mode_skip_external'));
       }
 
       const raceWithGlobalTimeout = <T>(task: Promise<T>, taskName: string): Promise<T> => {
@@ -159,23 +196,28 @@ export class LyricProvider {
       if (repoResultSettled.status === 'fulfilled') {
         repoResultFromSettled = repoResultSettled.value;
       } else {
-        logger.warn(`仓库搜索任务失败或超时: ${(repoResultSettled.reason as Error)?.message || String(repoResultSettled.reason)}`);
+        logger.warn(logger.msg('provider.repo_task_failed', { error: (repoResultSettled.reason as Error)?.message || String(repoResultSettled.reason) }));
       }
 
       if (externalApiResultSettled.status === 'fulfilled') {
         externalResultFromSettled = externalApiResultSettled.value;
       } else {
-        logger.warn(`外部API搜索任务失败或超时: ${(externalApiResultSettled.reason as Error)?.message || String(externalApiResultSettled.reason)}`);
+        logger.warn(logger.msg('provider.external_task_failed', { error: (externalApiResultSettled.reason as Error)?.message || String(externalApiResultSettled.reason) }));
       }
 
       if (repoResultFromSettled?.found && repoResultFromSettled.format === 'ttml') {
-        logger.info(`LyricProvider: TTML found in repository. Returning as highest priority.`);
+        logger.info(logger.msg('provider.repo_hit_ttml', { id }));
         lyricsCache.set(cacheKey, repoResultFromSettled);
+        // TTML 获取成功后，立即写入本地缓存
+        if (localLyricCache.shouldCache(id)) {
+          await localLyricCache.cacheLyric(id, repoResultFromSettled.content, 'main');
+          logger.info(logger.msg('provider.local_cached', { id }));
+        }
         return repoResultFromSettled;
       }
 
       if (repoResultFromSettled?.found) {
-        logger.info(`LyricProvider: Non-TTML lyrics found in repository (format: ${repoResultFromSettled.format}). Returning.`);
+        logger.info(logger.msg('provider.repo_hit', { id, format: repoResultFromSettled.format.toUpperCase() }));
         lyricsCache.set(cacheKey, repoResultFromSettled);
         return repoResultFromSettled;
       }
@@ -187,12 +229,12 @@ export class LyricProvider {
       }
 
       if (externalResultFromSettled?.found) {
-        logger.info(`LyricProvider: Lyrics found in external API (format: ${externalResultFromSettled.format}). Returning.`);
+        logger.info(logger.msg('provider.external_hit', { id, format: externalResultFromSettled.format.toUpperCase() }));
         lyricsCache.set(cacheKey, externalResultFromSettled);
         return externalResultFromSettled;
       }
       if (externalResultFromSettled && !externalResultFromSettled.found) {
-        logger.info(`LyricProvider: External API check completed but found no lyrics (error: ${externalResultFromSettled.error}, status: ${externalResultFromSettled.statusCode}).`);
+        logger.info(logger.msg('provider.external_not_found', { id, error: externalResultFromSettled.error, status: externalResultFromSettled.statusCode }));
       }
 
       let finalErrorMsg = "Lyrics not found after checking all sources.";
@@ -244,13 +286,13 @@ export class LyricProvider {
         finalStatusCode = 408;
       }
 
-      logger.info(`LyricProvider: Search concluded. Final error: "${finalErrorMsg}", status: ${finalStatusCode}`);
+      logger.info(logger.msg('provider.search_end', { id, error: finalErrorMsg, status: finalStatusCode }));
       return { found: false, id, error: finalErrorMsg, statusCode: finalStatusCode };
 
     } catch (error) {
       clearTimeout(overallTimeoutId);
       const err = error instanceof Error ? error : new Error(String(error));
-      logger.error(`LyricProvider: Catastrophic error in search orchestrator: ${err.message}`, err);
+      logger.error(logger.msg('provider.search_error', { id, message: err.message }), err);
       return {
         found: false,
         id,
@@ -261,22 +303,22 @@ export class LyricProvider {
   }
 
   private async handleFixedVersionSearch(id: string, fixedVersionQuery: LyricFormat, fast?: boolean, signal?: AbortSignal): Promise<SearchResult> {
-    logger.info(`LyricProvider: Handling fixedVersion request for format: ${fixedVersionQuery}`);
+    logger.info(logger.msg('provider.fixed_request', { id, format: fixedVersionQuery }));
     
     this.checkAborted(signal);
     
     const cacheKey = `fixed:${id}:${fixedVersionQuery}`;
     const cachedResult = lyricsCache.get(cacheKey);
     if (cachedResult) {
-      logger.info(`Cache hit for fixed version search: ${id}, format: ${fixedVersionQuery}`);
+      logger.info(logger.msg('provider.fixed_cache_hit', { id, format: fixedVersionQuery }));
       return cachedResult;
     }
 
     if ((fixedVersionQuery === 'yrc' || fixedVersionQuery === 'lrc') && !fast) {
-      logger.info(`LyricProvider: Handling fixedVersion ${fixedVersionQuery} with parallel repo/external check.`);
+      logger.info(logger.msg('provider.fixed_parallel', { format: fixedVersionQuery }));
 
-      const repoPromise = this.repoFetcher.fetch(id, fixedVersionQuery);
-      const externalPromise = this.externalFetcher.fetch(id, fixedVersionQuery);
+      const repoPromise = this.repoFetcher.fetch(id, fixedVersionQuery, signal);
+      const externalPromise = this.externalFetcher.fetch(id, fixedVersionQuery, signal);
 
       const [repoFetchResultSettled, externalFetchResultSettled] = await Promise.allSettled([
         repoPromise,
@@ -355,9 +397,9 @@ export class LyricProvider {
       return { found: false, id, error: finalErrorMsg, statusCode: finalStatusCode };
 
     } else { // 对于非 yrc/lrc 格式 (例如 ttml, qrc)，或 fast 模式下，只检查仓库
-      logger.info(`LyricProvider: Handling fixedVersion ${fixedVersionQuery} with repo-only check.`);
+      logger.info(logger.msg('provider.fixed_repo_only', { format: fixedVersionQuery }));
       try {
-        const repoResult = await this.repoFetcher.fetch(id, fixedVersionQuery);
+        const repoResult = await this.repoFetcher.fetch(id, fixedVersionQuery, signal);
         if (repoResult.status === 'found') {
           const result: SearchResult = { 
             found: true as const, 
@@ -367,6 +409,13 @@ export class LyricProvider {
             content: repoResult.content 
           };
           lyricsCache.set(cacheKey, result);
+          
+          // TTML 格式获取成功后，立即写入本地缓存，确保下次请求直接命中
+          if (fixedVersionQuery === 'ttml' && localLyricCache.shouldCache(id)) {
+            await localLyricCache.cacheLyric(id, repoResult.content, 'main');
+            logger.info(logger.msg('provider.local_cached', { id }));
+          }
+          
           return result;
         }
         
@@ -382,7 +431,7 @@ export class LyricProvider {
         return { found: false, id, error: `Lyrics not found for fixed format: ${fixedVersionQuery}`, statusCode: 404 };
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
-        logger.error(`LyricProvider: Unexpected error during repo-only fixed format search for ${fixedVersionQuery}: ${err.message}`);
+        logger.error(logger.msg('provider.repo_error', { id, format: fixedVersionQuery, message: err.message }));
         return { 
           found: false, 
           id, 
@@ -393,15 +442,15 @@ export class LyricProvider {
     }
   }
 
-  private async findAllInRepo(id: string, _fallbackQuery: string | undefined): Promise<SearchResult | null> {
+  private async findAllInRepo(id: string, _fallbackQuery: string | undefined, signal?: AbortSignal): Promise<SearchResult | null> {
     // 仓库中 ttml/yrc/lrc/eslrc 格式通常同时存在或同时缺失，
     // 因此只需检查 TTML（最高优先级）即可判断仓库是否有该歌曲的歌词。
-    logger.info(`LyricProvider: Checking TTML in repository (formats coexist, TTML as probe)`);
+    logger.info(logger.msg('provider.repo_ttml_probe', { id }));
 
     const ttmlCacheKey = `repo:${id}:ttml`;
     const cachedTtml = lyricsCache.get(ttmlCacheKey);
     if (cachedTtml && cachedTtml.status === 'found') {
-      logger.info(`LyricProvider: Cache hit for TTML.`);
+      logger.info(logger.msg('provider.repo_ttml_cache_hit', { id }));
       return {
         found: true as const,
         id,
@@ -412,9 +461,9 @@ export class LyricProvider {
     }
 
     try {
-      const ttmlResult = await this.repoFetcher.fetch(id, 'ttml');
+      const ttmlResult = await this.repoFetcher.fetch(id, 'ttml', signal);
       if (ttmlResult.status === 'found') {
-        logger.info(`LyricProvider: TTML found in repository, returning immediately.`);
+        logger.info(logger.msg('provider.repo_ttml_hit', { id }));
         lyricsCache.set(ttmlCacheKey, ttmlResult);
         return {
           found: true as const,
@@ -425,30 +474,30 @@ export class LyricProvider {
         };
       }
       if (ttmlResult.status === 'error') {
-        logger.warn(`LyricProvider: Error fetching TTML: ${ttmlResult.error.message}`);
+        logger.warn(logger.msg('provider.repo_ttml_error', { id, message: ttmlResult.error.message }));
       } else {
-        logger.info(`LyricProvider: TTML not found in repository, skipping other repo formats (formats coexist).`);
+        logger.info(logger.msg('provider.repo_ttml_not_found', { id }));
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      logger.warn(`LyricProvider: Exception fetching TTML: ${msg}`);
+      logger.warn(logger.msg('provider.repo_ttml_exception', { id, message: msg }));
     }
 
     return null;
   }
 
-  private async findInExternalApi(id: string): Promise<SearchResult> {
-    logger.info(`LyricProvider: Trying external API fallback.`);
+  private async findInExternalApi(id: string, signal?: AbortSignal): Promise<SearchResult> {
+    logger.info(logger.msg('provider.external_fallback', { id }));
 
     const cacheKey = `external:${id}:any`;
     const cachedResult = lyricsCache.get(cacheKey);
     if (cachedResult) {
-      logger.info(`Cache hit for external API with ID: ${id}`);
+      logger.info(logger.msg('provider.external_cache_hit', { id }));
       return cachedResult;
     }
 
     try {
-      const externalResult = await this.externalFetcher.fetch(id, undefined);
+      const externalResult = await this.externalFetcher.fetch(id, undefined, signal);
       
       if (externalResult.status === 'found') {
         const result: SearchResult = {
@@ -475,12 +524,12 @@ export class LyricProvider {
         };
       }
       
-      logger.info(`LyricProvider: External API fallback did not yield usable lyrics.`);
+      logger.info(logger.msg('provider.external_no_lyrics', { id }));
       return { found: false, id, error: 'Lyrics not found in external API', statusCode: 404 };
-      
+
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      logger.error(`LyricProvider: Error during external API fallback: ${err.message}`);
+      logger.error(logger.msg('provider.external_exception', { id, message: err.message }));
       
       return {
         found: false,
@@ -493,11 +542,11 @@ export class LyricProvider {
 
   private logRepoOutcome(repoResultSettled: PromiseSettledResult<SearchResult | null>) {
     if (repoResultSettled.status === 'rejected') {
-      logger.error('LyricProvider: Repository check promise was rejected.', repoResultSettled.reason);
+      logger.error(logger.msg('provider.repo_outcome_rejected'), repoResultSettled.reason);
     } else if (repoResultSettled.value === null) {
-      logger.info('LyricProvider: Repository check found no applicable formats or lyrics.');
+      logger.info(logger.msg('provider.repo_outcome_null'));
     } else if (!repoResultSettled.value.found) {
-      logger.info(`LyricProvider: Repository check completed but found no lyrics (or encountered an error): ${repoResultSettled.value.error}`);
+      logger.info(logger.msg('provider.repo_outcome_not_found', { error: repoResultSettled.value.error }));
     }
     // If fulfilled and found, it was handled earlier.
   }
@@ -576,7 +625,7 @@ export async function getLyricMetadata(
   }
 ): Promise<LyricMetadataResult> {
   const { logger, fast } = options;
-  logger.info(`LyricService: Getting metadata for ID: ${id}`);
+  logger.info(logger.msg('provider.metadata_query', { id }));
 
   const TOTAL_TIMEOUT_MS = 6000;
 
@@ -606,7 +655,7 @@ export async function getLyricMetadata(
         }));
 
   if (fast) {
-    logger.info(`Metadata: Fast mode enabled, skipping external API check.`);
+    logger.info(logger.msg('metadata.fast_mode'));
   }
 
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -649,7 +698,7 @@ export async function getLyricMetadata(
     }
 
     const availableFormats = Array.from(foundFormats);
-    logger.info(`Metadata: Check completed with ${availableFormats.length} formats found`);
+    logger.info(logger.msg('metadata.check_complete', { count: availableFormats.length }));
 
     if (availableFormats.length > 0) {
       return {
@@ -672,7 +721,7 @@ export async function getLyricMetadata(
     const err = error instanceof Error ? error : new Error(String(error));
     const isTimeout = err.message.includes('timed out');
 
-    logger.warn(`Metadata: ${isTimeout ? 'Timed out' : 'Error'}: ${err.message}`);
+    logger.warn(logger.msg('metadata.timeout', { message: err.message }));
     return {
       found: false,
       id,

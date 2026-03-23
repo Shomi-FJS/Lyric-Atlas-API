@@ -54,7 +54,7 @@ async function loadSettings(): Promise<void> {
     logger.info(logger.msg('admin.settings_loaded', { status: devModeEnabled }));
   } catch {
     devModeEnabled = false;
-    logger.info('未找到设置文件，使用默认值');
+    logger.info(logger.msg('admin.settings_not_found'));
   }
 }
 
@@ -66,7 +66,7 @@ async function ensureLyricsDevDir(): Promise<void> {
   try {
     await fs.mkdir(LYRICS_DEV_DIR, { recursive: true });
   } catch (err) {
-    logger.error('创建 lyrics-dev 目录失败', err);
+    logger.error(logger.msg('admin.create_dev_dir_failed'), err);
   }
 }
 
@@ -85,7 +85,7 @@ app.get('/api/status', async (c) => {
 
 app.get('/api/cache/list', async (c) => {
   try {
-    const meta = await localLyricCache.getMeta();
+    const meta = localLyricCache.getMeta();
     const cacheDir = localLyricCache.getCacheDir();
     const files = await fs.readdir(cacheDir);
     
@@ -128,7 +128,7 @@ app.get('/api/cache/list', async (c) => {
     
     return c.json({ success: true, files: cacheFiles, total: cacheFiles.length });
   } catch (err) {
-    logger.error('获取缓存列表失败', err);
+    logger.error(logger.msg('admin.get_cache_list_failed'), err);
     return c.json({ success: false, error: '获取缓存列表失败' }, 500);
   }
 });
@@ -143,13 +143,16 @@ app.delete('/api/cache/:id', async (c) => {
   try {
     const deleted = await localLyricCache.deleteCache(id);
     if (deleted) {
-      logger.info(`已删除缓存: ${id}`);
+      // 清除搜索结果缓存，确保下次查询不会返回已删除歌词的旧缓存
+      const { lyricsCache } = await import('../api/cache');
+      lyricsCache.clear();
+      logger.info(logger.msg('admin.cache_deleted', { id }));
       return c.json({ success: true, message: `缓存 ${id} 已删除` });
     } else {
       return c.json({ success: false, error: '缓存不存在' }, 404);
     }
   } catch (err) {
-    logger.error('删除缓存失败', err);
+    logger.error(logger.msg('admin.delete_cache_failed'), err);
     return c.json({ success: false, error: '删除缓存失败' }, 500);
   }
 });
@@ -172,7 +175,7 @@ app.get('/api/cache/file/:id', async (c) => {
     if (err.code === 'ENOENT') {
       return c.json({ success: false, error: '文件不存在' }, 404);
     }
-    logger.error('读取缓存文件失败', err);
+    logger.error(logger.msg('admin.read_dev_failed'), err);
     return c.json({ success: false, error: '读取缓存文件失败' }, 500);
   }
 });
@@ -201,7 +204,7 @@ app.post('/api/cache/upload', async (c) => {
         return c.json({ success: false, error: '无法从 TTML 文件中提取网易云 ID，请手动提供 ID' }, 400);
       }
       id = extractedId;
-      logger.info(`自动提取网易云 ID: ${id}`);
+      logger.info(logger.msg('admin.auto_extract_id', { id }));
     }
     
     if (!/^\d+$/.test(id)) {
@@ -209,7 +212,10 @@ app.post('/api/cache/upload', async (c) => {
     }
     
     await localLyricCache.cacheLyric(id, content, 'upload');
-    logger.info(`已上传缓存: ${id}`);
+    // 清除搜索结果缓存，确保下次查询不会返回旧版本的缓存歌词
+    const { lyricsCache } = await import('../api/cache');
+    lyricsCache.clear();
+    logger.info(logger.msg('admin.cache_uploaded', { id }));
     
     return c.json({ 
       success: true, 
@@ -219,8 +225,58 @@ app.post('/api/cache/upload', async (c) => {
       artists: metadata.artists
     });
   } catch (err) {
-    logger.error('上传缓存失败', err);
+    logger.error(logger.msg('admin.upload_cache_failed'), err);
     return c.json({ success: false, error: '上传缓存失败' }, 500);
+  }
+});
+
+app.post('/api/cache/rebuild-meta', async (c) => {
+  try {
+    const result = await localLyricCache.rebuildMeta();
+
+    // 清空内存中的搜索结果缓存，确保后续请求使用最新的元数据和歌词内容
+    const { lyricsCache, metadataCache } = await import('../api/cache');
+    lyricsCache.clear();
+    metadataCache.clear();
+
+    logger.info(logger.msg('admin.rebuild_complete', { total: result.total, added: result.added, updated: result.updated, removed: result.removed }));
+    return c.json({ success: true, ...result });
+  } catch (err) {
+    logger.error(logger.msg('admin.rebuild_meta_failed'), err);
+    return c.json({ success: false, error: '重建元数据失败' }, 500);
+  }
+});
+
+app.post('/api/cache/update-remote', async (c) => {
+  try {
+    const result = await localLyricCache.updateCacheFromRemote();
+
+    // 清空内存缓存
+    const { lyricsCache, metadataCache } = await import('../api/cache');
+    lyricsCache.clear();
+    metadataCache.clear();
+
+    logger.info(logger.msg('admin.update_complete', { updated: result.updated, renamed: result.renamed, notFound: result.notFound }));
+    return c.json({ success: true, ...result });
+  } catch (err) {
+    logger.error(logger.msg('admin.update_cache_failed'), err);
+    return c.json({ success: false, error: '缓存更新失败' }, 500);
+  }
+});
+
+app.post('/api/cache/rebuild-from-ids', async (c) => {
+  try {
+    const result = await localLyricCache.rebuildFromIdsFile();
+
+    const { lyricsCache, metadataCache } = await import('../api/cache');
+    lyricsCache.clear();
+    metadataCache.clear();
+
+    logger.info(`从 ncm-ids.json 重构完成: ${result.total} 个文件`);
+    return c.json({ success: true, ...result });
+  } catch (err) {
+    logger.error('从 ncm-ids.json 重构失败', err);
+    return c.json({ success: false, error: '重构失败' }, 500);
   }
 });
 
@@ -229,10 +285,10 @@ app.post('/api/dev-mode', async (c) => {
     const body = await c.req.json();
     devModeEnabled = !!body.enabled;
     await saveSettings();
-    logger.info(`开发模式${devModeEnabled ? '已启用' : '已禁用'}`);
+    logger.info(logger.msg('admin.dev_mode_toggled', { status: devModeEnabled ? '已启用' : '已禁用' }));
     return c.json({ success: true, devModeEnabled });
   } catch (err) {
-    logger.error('更新开发模式失败', err);
+    logger.error(logger.msg('admin.toggle_dev_failed'), err);
     return c.json({ success: false, error: '更新开发模式失败' }, 500);
   }
 });
@@ -276,7 +332,7 @@ app.get('/api/dev/list', async (c) => {
     
     return c.json({ success: true, files: devFiles, total: devFiles.length });
   } catch (err) {
-    logger.error('获取开发文件列表失败', err);
+    logger.error(logger.msg('admin.get_dev_list_failed'), err);
     return c.json({ success: false, error: '获取开发文件列表失败' }, 500);
   }
 });
@@ -306,7 +362,7 @@ app.post('/api/dev/upload', async (c) => {
         return c.json({ success: false, error: '无法从 TTML 文件中提取网易云 ID，请手动提供 ID' }, 400);
       }
       id = extractedId;
-      logger.info(`自动提取网易云 ID: ${id}`);
+      logger.info(logger.msg('admin.auto_extract_id', { id }));
     }
     
     if (!/^\d+$/.test(id)) {
@@ -315,7 +371,7 @@ app.post('/api/dev/upload', async (c) => {
     
     const filePath = path.join(LYRICS_DEV_DIR, `${id}.ttml`);
     await fs.writeFile(filePath, content, 'utf-8');
-    logger.info(`已上传开发文件: ${id}`);
+    logger.info(logger.msg('admin.dev_uploaded', { id }));
     
     return c.json({ 
       success: true, 
@@ -325,7 +381,7 @@ app.post('/api/dev/upload', async (c) => {
       artists: metadata.artists
     });
   } catch (err) {
-    logger.error('上传开发文件失败', err);
+    logger.error(logger.msg('admin.upload_dev_failed'), err);
     return c.json({ success: false, error: '上传开发文件失败' }, 500);
   }
 });
@@ -340,13 +396,13 @@ app.delete('/api/dev/:id', async (c) => {
   try {
     const filePath = path.join(LYRICS_DEV_DIR, `${id}.ttml`);
     await fs.unlink(filePath);
-    logger.info(`已删除开发文件: ${id}`);
+    logger.info(logger.msg('admin.dev_deleted', { id }));
     return c.json({ success: true, message: `开发文件 ${id} 已删除` });
   } catch (err: any) {
     if (err.code === 'ENOENT') {
       return c.json({ success: false, error: '文件不存在' }, 404);
     }
-    logger.error('删除开发文件失败', err);
+    logger.error(logger.msg('admin.delete_dev_failed'), err);
     return c.json({ success: false, error: '删除开发文件失败' }, 500);
   }
 });
@@ -368,7 +424,7 @@ app.get('/api/dev/file/:id', async (c) => {
     if (err.code === 'ENOENT') {
       return c.json({ success: false, error: '文件不存在' }, 404);
     }
-    logger.error('读取开发文件失败', err);
+    logger.error(logger.msg('admin.read_dev_failed'), err);
     return c.json({ success: false, error: '读取开发文件失败' }, 500);
   }
 });

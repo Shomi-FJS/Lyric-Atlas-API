@@ -29,7 +29,7 @@ export async function initDevMode(): Promise<void> {
     logger.info(logger.msg('devmode.initialized', { status: devModeEnabled ? '已启用' : '已禁用' }));
   } catch {
     devModeEnabled = false;
-    logger.info('未找到开发模式设置，使用默认值 (已禁用)');
+    logger.info(logger.msg('admin.settings_not_found'));
   }
   
   initialized = true;

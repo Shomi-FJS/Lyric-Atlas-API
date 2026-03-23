@@ -55,11 +55,11 @@ export class Cache<T> {
       data,
       timestamp: Date.now()
     });
-    logger.debug(logger.msg('cache.set', { key }));
+    logger.info(logger.msg('cache.set', { key }));
   }
 
   invalidate(key: string): boolean {
-    logger.debug(`Invalidating key '${key}'`);
+    logger.info(logger.msg('cache.invalidate', { key }));
     return this.cache.delete(key);
   }
 
