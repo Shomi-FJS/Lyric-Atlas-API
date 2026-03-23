@@ -77,19 +77,20 @@ export class LyricProvider {
       }
     }
 
-    if (fixedVersionQuery === 'ttml') {
-      const localCached = await localLyricCache.getCachedLyric(id);
-      this.checkAborted(signal);
-      if (localCached) {
-        logger.info(logger.msg('localcache.cache_hit', { id }));
-        const result: SearchResult = { found: true, id, format: 'ttml', source: 'repository', content: localCached };
-        const cacheKey = `search:${id}:ttml:${fallbackQuery || 'none'}:${fast ? 'fast' : 'full'}`;
-        lyricsCache.set(cacheKey, result);
-        return result;
-      }
+    // 本地文件缓存检查不受 fixedVersion 限制，确保已缓存的 TTML 始终被优先使用
+    const localCached = await localLyricCache.getCachedLyric(id);
+    this.checkAborted(signal);
+    if (localCached) {
+      logger.info(logger.msg('localcache.cache_hit', { id }));
+      const result: SearchResult = { found: true, id, format: 'ttml', source: 'repository', content: localCached };
+      lyricsCache.set(`search:${id}:ttml:normalized`, result);
+      return result;
     }
 
-    const cacheKey = `search:${id}:${fixedVersionQuery || 'none'}:${fallbackQuery || 'none'}:${fast ? 'fast' : 'full'}`;
+    // 对 TTML 缓存键进行归一化，忽略 fallback/fast 参数差异，避免因参数微变导致缓存穿透
+    const cacheKey = fixedVersionQuery === 'ttml'
+      ? `search:${id}:ttml:normalized`
+      : `search:${id}:${fixedVersionQuery || 'none'}:${fallbackQuery || 'none'}:${fast ? 'fast' : 'full'}`;
     const cachedResult = lyricsCache.get(cacheKey);
     if (cachedResult) {
       logger.info(`缓存命中 (搜索): ${id}`);

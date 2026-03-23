@@ -11,7 +11,7 @@ const __dirname = dirname(__filename);
 
 const CACHE_DIR = join(__dirname, '..', 'lyrics-cache');
 const META_FILE = join(CACHE_DIR, 'cache-meta.json');
-const PLAY_COUNT_THRESHOLD = 2;
+const PLAY_COUNT_THRESHOLD = 1;
 const INACTIVE_DAYS_THRESHOLD = 15;
 const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const MAX_MEMORY_CACHE_SIZE = 500;
@@ -303,8 +303,39 @@ export class LocalLyricCache {
 
   private startUpdateCheck(): void {
     this.updateCheckTimer = setInterval(async () => {
-      logger.info('Starting periodic update check...');
+      logger.info('Starting periodic maintenance...');
       await this.cleanupInactive();
+
+      // 执行远程更新检查，同步仓库中已变更的 TTML 内容到本地缓存
+      try {
+        const { buildRawUrl, buildUserLyricUrl, getLogger } = await import('./utils');
+        const updateLogger = getLogger('LocalLyricCache.UpdateCheck');
+        const updated = await this.checkForUpdates(async (id: string) => {
+          try {
+            const mainUrl = buildRawUrl(id, 'ttml');
+            const userUrl = buildUserLyricUrl(id);
+
+            const [mainResult, userResult] = await Promise.allSettled([
+              fetch(mainUrl).then(r => r.ok ? r.text() : null).catch(() => null),
+              fetch(userUrl).then(r => r.ok ? r.text() : null).catch(() => null),
+            ]);
+
+            const mainContent = mainResult.status === 'fulfilled' ? mainResult.value : null;
+            const userContent = userResult.status === 'fulfilled' ? userResult.value : null;
+
+            if (mainContent) return { content: mainContent, source: 'main' as const };
+            if (userContent) return { content: userContent, source: 'user' as const };
+            return null;
+          } catch {
+            return null;
+          }
+        });
+        if (updated > 0) {
+          updateLogger.info(`Periodic update: ${updated} lyric(s) updated from remote.`);
+        }
+      } catch (err) {
+        logger.error('Periodic update check failed:', err);
+      }
     }, UPDATE_CHECK_INTERVAL_MS);
   }
 

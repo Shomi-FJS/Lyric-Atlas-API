@@ -90,9 +90,9 @@ export class Cache<T> {
   }
 }
 
-export const metadataCache = new Cache<any>('metadata', 30 * 60 * 1000, 3000);
+export const metadataCache = new Cache<any>('metadata', 30 * 60 * 1000, 5000);
 
-export const lyricsCache = new Cache<any>('lyrics', 60 * 60 * 1000, 2000);
+export const lyricsCache = new Cache<any>('lyrics', 60 * 60 * 1000, 5000);
 
 export function setupCacheCleanup(intervalMs: number = 15 * 60 * 1000): ReturnType<typeof setInterval> {
   logger.info(logger.msg('cache.cleanup_interval', { interval: intervalMs }));

@@ -82,7 +82,12 @@ export class RepositoryFetcher implements LyricFetcher {
     const url = buildRawUrl(id, format);
     logger.info(`Attempting fetch for ${format.toUpperCase()}: ${url}`);
     try {
-      const response = await fetch(url);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (response.ok) {
         const content = await response.text();
         logger.info(`Success for ${format.toUpperCase()} (status: ${response.status})`);
@@ -97,13 +102,21 @@ export class RepositoryFetcher implements LyricFetcher {
     } catch (err) {
       logger.error(`Network error for ${format.toUpperCase()}`, err);
       const error = err instanceof Error ? err : new Error('Unknown fetch error');
+      if (error.name === 'AbortError') {
+        return { status: 'error', format, error: new Error(`Fetch timeout: ${url}`) };
+      }
       return { status: 'error', format, error };
     }
   }
 
   private async fetchUrl(url: string, format: LyricFormat): Promise<FetchResult> {
     try {
-      const response = await fetch(url);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (response.ok) {
         const content = await response.text();
         return { status: 'found', format, content, source: 'repository' };
@@ -112,6 +125,9 @@ export class RepositoryFetcher implements LyricFetcher {
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error('Unknown fetch error');
+      if (error.name === 'AbortError') {
+        return { status: 'error', format, error: new Error(`Fetch timeout: ${url}`) };
+      }
       return { status: 'error', format, error };
     }
   }
