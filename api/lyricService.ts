@@ -172,142 +172,131 @@ export class LyricProvider {
     try {
       // 创建组合中断信号：全局请求中断 + 超时控制
       const timeoutSignal = this.combineSignals(globalSignal, controller.signal);
-      
-      const repoTask = this.findAllInRepo(id, fallbackQuery, timeoutSignal);
-      const externalApiTask = fast ? Promise.resolve(null as SearchResult | null) : this.findInExternalApi(id, timeoutSignal);
 
-      if (fast) {
-        logger.info(logger.msg('provider.fast_mode_skip_external'));
+      // === 阶段1：优先查询仓库（内存缓存在 findAllInRepo 内部优先检查，命中时零网络开销） ===
+      this.checkAborted(timeoutSignal);
+
+      let repoResult: SearchResult | null = null;
+      const REPO_TIMEOUT_MS = 1500; // 仓库查询超时 1.5 秒，快速失败
+      const repoController = new AbortController();
+      const repoTimeoutId = setTimeout(() => repoController.abort(new Error('Repo search timeout')), REPO_TIMEOUT_MS);
+      const repoSignal = this.combineSignals(timeoutSignal, repoController.signal);
+
+      try {
+        repoResult = await this.findAllInRepo(id, fallbackQuery, repoSignal);
+        clearTimeout(repoTimeoutId);
+      } catch (error) {
+        clearTimeout(repoTimeoutId);
+        // 区分超时和切歌：超时立即返回 found:false，不等待外部 API
+        const isSongSwitch = globalSignal?.aborted;
+        if (!isSongSwitch && repoController.signal.aborted) {
+          logger.warn(logger.msg('provider.repo_timeout_quick_fail', { id, timeout: REPO_TIMEOUT_MS }));
+          clearTimeout(overallTimeoutId);
+          removePendingRequest(id);
+          return { found: false, id, error: `Repository search timed out after ${REPO_TIMEOUT_MS}ms`, statusCode: 408 };
+        } else {
+          throw error;
+        }
       }
 
-      const raceWithGlobalTimeout = <T>(task: Promise<T>, taskName: string): Promise<T> => {
-        return Promise.race([
-          task,
-          new Promise<T>((_, reject) => {
-            if (controller.signal.aborted) {
-              return reject(controller.signal.reason || new Error(`${taskName} aborted due to pre-existing global timeout`));
-            }
-            controller.signal.addEventListener('abort', () => {
-              reject(controller.signal.reason || new Error(`${taskName} aborted by global timeout`));
-            });
-          })
-        ]);
-      };
-
-      const [repoResultSettled, externalApiResultSettled] = await Promise.allSettled([
-        raceWithGlobalTimeout(repoTask, "Repository search"),
-        raceWithGlobalTimeout(externalApiTask, "External API search")
-      ]);
-
-      clearTimeout(overallTimeoutId);
-
-      // 被 cancelAllPendingRequests 取消时，不返回 found:false（避免覆盖客户端歌词）
       this.checkAborted(globalSignal);
 
-      let repoResultFromSettled: (SearchResult & { found: true }) | (SearchResult & { found: false }) | null = null;
-      let externalResultFromSettled: (SearchResult & { found: true }) | (SearchResult & { found: false }) | null = null;
-
-      if (repoResultSettled.status === 'fulfilled') {
-        repoResultFromSettled = repoResultSettled.value;
-      } else {
-        logger.warn(logger.msg('provider.repo_task_failed', { error: (repoResultSettled.reason as Error)?.message || String(repoResultSettled.reason) }));
-      }
-
-      if (externalApiResultSettled.status === 'fulfilled') {
-        externalResultFromSettled = externalApiResultSettled.value;
-      } else {
-        logger.warn(logger.msg('provider.external_task_failed', { error: (externalApiResultSettled.reason as Error)?.message || String(externalApiResultSettled.reason) }));
-      }
-
-      if (repoResultFromSettled?.found && repoResultFromSettled.format === 'ttml') {
-        logger.info(logger.msg('provider.repo_hit_ttml', { id }));
-        lyricsCache.set(cacheKey, repoResultFromSettled);
-        // 同时写入归一化 TTML 键，确保并发请求的重试能跨路径命中
-        lyricsCache.set(`search:${id}:ttml:normalized`, repoResultFromSettled);
-        // TTML 获取成功后，立即写入本地缓存
-        if (localLyricCache.shouldCache(id)) {
-          await localLyricCache.cacheLyric(id, repoResultFromSettled.content, 'main');
-          logger.info(logger.msg('provider.local_cached', { id }));
-        }
-        removePendingRequest(id);
-        return repoResultFromSettled;
-      }
-
-      if (repoResultFromSettled?.found) {
-        logger.info(logger.msg('provider.repo_hit', { id, format: repoResultFromSettled.format.toUpperCase() }));
-        lyricsCache.set(cacheKey, repoResultFromSettled);
-        removePendingRequest(id);
-        return repoResultFromSettled;
-      }
-      
-      if (repoResultSettled.status === 'fulfilled') {
-        this.logRepoOutcome(repoResultSettled as PromiseSettledResult<SearchResult | null>);
-      } else {
-        this.logRepoOutcome(repoResultSettled as PromiseSettledResult<null>); 
-      }
-
-      if (externalResultFromSettled?.found) {
-        logger.info(logger.msg('provider.external_hit', { id, format: externalResultFromSettled.format.toUpperCase() }));
-        lyricsCache.set(cacheKey, externalResultFromSettled);
-        // 同时写入归一化 TTML 键
-        if (externalResultFromSettled.format === 'ttml') {
-          lyricsCache.set(`search:${id}:ttml:normalized`, externalResultFromSettled);
-        }
-        removePendingRequest(id);
-        return externalResultFromSettled;
-      }
-      if (externalResultFromSettled && !externalResultFromSettled.found) {
-        logger.info(logger.msg('provider.external_not_found', { id, error: externalResultFromSettled.error, status: externalResultFromSettled.statusCode }));
-      }
-
-      let finalErrorMsg = "Lyrics not found after checking all sources.";
-      let finalStatusCode: number = 404;
-      
-      const errorsEncountered: string[] = [];
-      let wasRepoSearchAttemptedAndFailed = true;
-      let wasExternalSearchAttemptedAndFailed = true;
-
-      if (repoResultSettled.status === 'fulfilled') {
-        if (repoResultFromSettled && repoResultFromSettled.found) wasRepoSearchAttemptedAndFailed = false;
-        else errorsEncountered.push(`Repo: ${repoResultFromSettled?.error || 'Not found or null result'}`);
-        if (repoResultFromSettled?.statusCode && repoResultFromSettled.statusCode !== 200 && repoResultFromSettled.statusCode !== 404) {
-            finalStatusCode = repoResultFromSettled.statusCode;
-        }
-      } else {
-        errorsEncountered.push(`Repo Error: ${(repoResultSettled.reason as Error)?.message || String(repoResultSettled.reason)}`);
-        if (controller.signal.reason === repoResultSettled.reason || (repoResultSettled.reason as Error)?.name === 'AbortError' || String(repoResultSettled.reason).toLowerCase().includes('timeout')) {
-            finalStatusCode = 408;
+      // 仓库命中 → 立即返回，终止查询（不查外部 API）
+      if (repoResult?.found) {
+        clearTimeout(overallTimeoutId);
+        if (repoResult.format === 'ttml') {
+          logger.info(logger.msg('provider.repo_hit_ttml', { id }));
+          lyricsCache.set(cacheKey, repoResult);
+          lyricsCache.set(`search:${id}:ttml:normalized`, repoResult);
+          if (localLyricCache.shouldCache(id)) {
+            await localLyricCache.cacheLyric(id, repoResult.content, 'main');
+            logger.info(logger.msg('provider.local_cached', { id }));
+          }
         } else {
-            finalStatusCode = (repoResultSettled.reason as any)?.statusCode || 500;
+          logger.info(logger.msg('provider.repo_hit', { id, format: repoResult.format.toUpperCase() }));
+          lyricsCache.set(cacheKey, repoResult);
         }
+        removePendingRequest(id);
+        return repoResult;
       }
 
-      if (externalApiResultSettled.status === 'fulfilled') {
-        if (externalResultFromSettled && externalResultFromSettled.found) wasExternalSearchAttemptedAndFailed = false;
-        else errorsEncountered.push(`External API: ${externalResultFromSettled?.error || 'Not found or null result'}`);
-        if (wasRepoSearchAttemptedAndFailed && externalResultFromSettled?.statusCode && externalResultFromSettled.statusCode !== 200) {
-          if (finalStatusCode === 404 || finalStatusCode === 408 || externalResultFromSettled.statusCode >= 500) {
-            finalStatusCode = externalResultFromSettled.statusCode;
-          }
-        }
+      // 仓库未命中 → 记录日志
+      if (repoResult && !repoResult.found) {
+        this.logRepoOutcome({ status: 'fulfilled', value: repoResult });
       } else {
-        errorsEncountered.push(`External API Error: ${(externalApiResultSettled.reason as Error)?.message || String(externalApiResultSettled.reason)}`);
-        if (wasRepoSearchAttemptedAndFailed) {
-          if (controller.signal.reason === externalApiResultSettled.reason || (externalApiResultSettled.reason as Error)?.name === 'AbortError' || String(externalApiResultSettled.reason).toLowerCase().includes('timeout')) {
-            if (finalStatusCode === 404) finalStatusCode = 408;
-          } else {
-            const externalRejectionStatusCode = (externalApiResultSettled.reason as any)?.statusCode;
-            if (finalStatusCode === 404 || finalStatusCode === 408) finalStatusCode = externalRejectionStatusCode || 500;
+        this.logRepoOutcome({ status: 'fulfilled', value: null });
+      }
+
+      // === 阶段2：仓库明确返回 not found 时，才查询外部 API（fast 模式跳过） ===
+      if (fast) {
+        clearTimeout(overallTimeoutId);
+        logger.info(logger.msg('provider.fast_mode_skip_external'));
+        removePendingRequest(id);
+        return { found: false, id, error: 'Lyrics not found in repository (fast mode).', statusCode: 404 };
+      }
+
+      this.checkAborted(timeoutSignal);
+      logger.info(logger.msg('provider.external_fallback', { id }));
+
+      let externalResult: SearchResult | null = null;
+      let externalTimedOut = false;
+      try {
+        externalResult = await this.findInExternalApi(id, timeoutSignal);
+      } catch (error) {
+        const isSongSwitch = globalSignal?.aborted;
+        if (!isSongSwitch && controller.signal.aborted) {
+          externalTimedOut = true;
+          logger.warn(logger.msg('provider.external_timeout', { id }));
+        } else {
+          throw error;
+        }
+      }
+
+      clearTimeout(overallTimeoutId);
+      this.checkAborted(globalSignal);
+
+      // 外部 API 命中
+      if (externalResult?.found) {
+        logger.info(logger.msg('provider.external_hit', { id, format: externalResult.format.toUpperCase() }));
+        lyricsCache.set(cacheKey, externalResult);
+        if (externalResult.format === 'ttml') {
+          lyricsCache.set(`search:${id}:ttml:normalized`, externalResult);
+        }
+        removePendingRequest(id);
+        return externalResult;
+      }
+
+      // 外部 API 未命中
+      if (externalResult && !externalResult.found) {
+        logger.info(logger.msg('provider.external_not_found', { id, error: externalResult.error, status: externalResult.statusCode }));
+      }
+
+      // 构造最终错误信息
+      const errorsEncountered: string[] = [];
+      let finalStatusCode: number = 404;
+
+      if (repoResult && !repoResult.found) {
+        errorsEncountered.push(`Repo: ${repoResult.error || 'Not found'}`);
+        if (repoResult.statusCode && repoResult.statusCode !== 200 && repoResult.statusCode !== 404) {
+          finalStatusCode = repoResult.statusCode;
+        }
+      }
+
+      if (externalTimedOut) {
+        if (finalStatusCode === 404) finalStatusCode = 408;
+        errorsEncountered.push('External API: Timed out');
+      } else if (externalResult && !externalResult.found) {
+        errorsEncountered.push(`External API: ${externalResult.error || 'Not found'}`);
+        if (externalResult.statusCode && externalResult.statusCode !== 200) {
+          if (finalStatusCode === 404 || finalStatusCode === 408 || externalResult.statusCode >= 500) {
+            finalStatusCode = externalResult.statusCode;
           }
         }
       }
 
-      if (wasRepoSearchAttemptedAndFailed && wasExternalSearchAttemptedAndFailed && errorsEncountered.length > 0) {
-        finalErrorMsg = errorsEncountered.join('; ');
-      } else if (controller.signal.aborted && controller.signal.reason instanceof Error && controller.signal.reason.message.startsWith("Search timed out")) {
-        finalErrorMsg = controller.signal.reason.message;
-        finalStatusCode = 408;
-      }
+      const finalErrorMsg = errorsEncountered.length > 0
+        ? errorsEncountered.join('; ')
+        : "Lyrics not found after checking all sources.";
 
       logger.info(logger.msg('provider.search_end', { id, error: finalErrorMsg, status: finalStatusCode }));
       removePendingRequest(id);

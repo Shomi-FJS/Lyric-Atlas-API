@@ -10,7 +10,7 @@ import type { LyricFetcher } from '../interfaces/fetcher';
 
 const logger = getLogger('RepositoryFetcher');
 
-const FETCH_TIMEOUT_MS = 5000;
+const FETCH_TIMEOUT_MS = 1200;
 
 function createAbortPromise(signal?: AbortSignal): Promise<never> {
   return new Promise((_, reject) => {
@@ -77,33 +77,40 @@ export class RepositoryFetcher implements LyricFetcher {
     logger.info(logger.msg('fetcher.parallel_ttml_urls', { id, urls: allUrls.join(', ') }));
 
     try {
-      const abortPromise = createAbortPromise(signal);
-      
-      const results = await Promise.race([
-        Promise.allSettled(allUrls.map(url => this.fetchUrl(url, format, signal))),
-        abortPromise
+      // 竞速模式：Promise.any 只要有一个返回 found 就立即返回
+      // 不等所有请求完成，大幅降低响应延迟
+      const result = await Promise.any([
+        ...allUrls.map(async (url, index) => {
+          const res = await this.fetchUrl(url, format, signal);
+          if (res.status === 'found') {
+            const sourceName = index === 0 ? '主仓库' : `镜像${index}`;
+            logger.info(logger.msg('fetcher.mirror_hit', { id, source: sourceName, url }));
+            return res;
+          }
+          // notfound 或 error 都抛错，让 Promise.any 继续等
+          throw res;
+        }),
+        createAbortPromise(signal)
       ]);
-
-      for (let i = 0; i < results.length; i++) {
-        const settled = results[i];
-        if (settled.status === 'fulfilled' && settled.value.status === 'found') {
-          const sourceName = i === 0 ? '主仓库' : `镜像${i}`;
-          logger.info(logger.msg('fetcher.mirror_hit', { id, source: sourceName, url: allUrls[i] }));
-          return settled.value;
+      
+      return result as FetchResult;
+    } catch (err) {
+      // Promise.any 的 AggregateError：所有请求都失败
+      if (signal?.aborted || (err instanceof Error && err.message === 'Request aborted')) {
+        return { status: 'error', format, error: new Error('Request aborted') };
+      }
+      
+      // 检查是否全部返回 notfound（而非超时/错误）
+      if (err instanceof AggregateError) {
+        const allNotFound = err.errors.every(
+          (e: any) => e?.status === 'notfound'
+        );
+        if (allNotFound) {
+          logger.info(logger.msg('fetcher.all_mirrors_missed', { id }));
+          return { status: 'notfound', format };
         }
       }
-
-      if (signal?.aborted) {
-        return { status: 'error', format, error: new Error('Request aborted') };
-      }
-
-      logger.info(logger.msg('fetcher.all_mirrors_missed', { id }));
-      return { status: 'notfound', format };
-    } catch (err) {
-      if (signal?.aborted || (err instanceof Error && err.message === 'Request aborted')) {
-        logger.debug(`请求被中断: ${id}`);
-        return { status: 'error', format, error: new Error('Request aborted') };
-      }
+      
       logger.error(logger.msg('fetcher.network_error', { format: format.toUpperCase() }), err);
       const error = err instanceof Error ? err : new Error('Unknown fetch error');
       return { status: 'error', format, error };
