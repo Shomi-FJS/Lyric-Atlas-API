@@ -65,6 +65,7 @@ const consoleLoggerShim = {
   warn: (...args: any[]) => apiLogger.warn(...args),
   error: (...args: any[]) => apiLogger.error(...args),
   debug: (...args: any[]) => apiLogger.debug(...args),
+  msg: (key: string, params?: Record<string, any>) => apiLogger.msg(key, params),
 };
 
 // --- Routes ---

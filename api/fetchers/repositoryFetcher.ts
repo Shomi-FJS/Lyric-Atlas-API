@@ -27,6 +27,13 @@ function createAbortPromise(signal?: AbortSignal): Promise<never> {
 export class RepositoryFetcher implements LyricFetcher {
   private cacheInitialized = false;
 
+  /**
+   * TTML 镜像请求去重：同 ID 并发请求共享同一个 fetch Promise，
+   * 避免两个端点（/search 和 /ncm-lyrics）各自发起一组镜像请求互相竞争。
+   * Promise 一旦 settle 就从 map 中移除，后续请求会发起新的 fetch。
+   */
+  private inflightTtmlFetches = new Map<string, Promise<FetchResult>>();
+
   async initCache(): Promise<void> {
     if (!this.cacheInitialized) {
       await localLyricCache.init();
@@ -45,6 +52,24 @@ export class RepositoryFetcher implements LyricFetcher {
       return this.fetchFromMainRepo(id, format, signal);
     }
 
+    // TTML 请求去重：同 ID 只发起一次镜像并行拉取
+    const dedupeKey = id;
+    const inflight = this.inflightTtmlFetches.get(dedupeKey);
+    if (inflight) {
+      logger.debug(logger.msg('fetcher.dedupe_hit', { id }));
+      return inflight;
+    }
+
+    const fetchPromise = this.fetchTtmlFromMirrors(id, signal).finally(() => {
+      this.inflightTtmlFetches.delete(dedupeKey);
+    });
+
+    this.inflightTtmlFetches.set(dedupeKey, fetchPromise);
+    return fetchPromise;
+  }
+
+  private async fetchTtmlFromMirrors(id: string, signal?: AbortSignal): Promise<FetchResult> {
+    const format: LyricFormat = 'ttml';
     const mainRepoUrl = buildRawUrl(id, format);
     const mirrorUrls = buildMirrorUrls(id, format);
     const allUrls = [mainRepoUrl, ...mirrorUrls];

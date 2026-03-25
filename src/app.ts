@@ -57,6 +57,7 @@ app.get('/search', async (c: Context) => {
   const fallbackQuery = c.req.query('fallback');
   const fixedVersionRaw = c.req.query('fixedVersion');
   const fast = c.req.query('fast') !== undefined;
+  const signal = c.req.raw.signal;
 
   if (!id) {
     c.status(400);
@@ -77,6 +78,7 @@ app.get('/search', async (c: Context) => {
       fixedVersion: fixedVersionRaw,
       fallback: fallbackQuery,
       fast,
+      signal,
     });
 
     if (result.found) {
@@ -91,6 +93,10 @@ app.get('/search', async (c: Context) => {
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown processing error';
+    if (errorMessage === 'Request aborted') {
+      apiLogger.info(apiLogger.msg('api.aborted', { id }));
+      return new Response(null, { status: 499 });
+    }
     apiLogger.error(apiLogger.msg('api.search_error', { id, message: errorMessage }), error);
     c.status(500);
     return c.json({ found: false, id, error: `Failed to process lyric request: ${errorMessage}` });
@@ -147,6 +153,7 @@ app.get('/lyrics/meta', async (c) => {
 
 app.get('/ncm-lyrics/:id', async (c) => {
   const id = c.req.param('id');
+  const signal = c.req.raw.signal;
 
   if (!id.endsWith('.ttml')) {
     c.status(404);
@@ -183,7 +190,7 @@ app.get('/ncm-lyrics/:id', async (c) => {
 
   try {
     const lyricProvider = getLyricProvider();
-    const result = await lyricProvider.search(songId, { fixedVersion: 'ttml' });
+    const result = await lyricProvider.search(songId, { fixedVersion: 'ttml', signal });
 
     if (result.found && result.format === 'ttml') {
       const content = result.content;
@@ -205,6 +212,9 @@ app.get('/ncm-lyrics/:id', async (c) => {
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    if (errorMessage === 'Request aborted') {
+      return new Response(null, { status: 499 });
+    }
     apiLogger.error(apiLogger.msg('api.ttml_fetch_error', { id: songId, message: errorMessage }));
     c.status(500);
     return c.text('Internal server error');

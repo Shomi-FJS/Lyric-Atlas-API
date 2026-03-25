@@ -13,7 +13,7 @@ import type { LyricProviderOptions } from './interfaces/lyricTypes';
 import { lyricsCache } from './cache';
 import { localLyricCache } from './localLyricCache';
 import { isDevModeEnabled, getDevLyric } from './devMode';
-import { cancelPendingRequest, createPendingRequest, removePendingRequest } from './requestDedupe';
+import { cancelAllPendingRequests, createPendingRequest, removePendingRequest } from './requestDedupe';
 
 // Get logger instance using our custom logger
 const logger = getLogger('LyricService');
@@ -32,6 +32,7 @@ interface BasicLogger {
     warn: (...args: any[]) => void;
     error: (...args: any[]) => void;
     debug?: (...args: any[]) => void;
+    msg: (key: string, params?: Record<string, any>) => string;
 }
 
 // --- New types for metadata checking ---
@@ -85,16 +86,18 @@ export class LyricProvider {
     const fixedVersionQuery = fixedVersionRaw?.toLowerCase();
     logger.info(logger.msg('provider.processing', { id, format: fixedVersionQuery || 'auto', fallback: fallbackQuery || 'none' }));
 
-    // 应用层请求去重：新请求取消旧请求
-    cancelPendingRequest(id);
+    // 应用层请求去重：新请求取消所有旧请求（不限于相同 ID）
+    const pending = createPendingRequest(id);
+    const globalSignal = this.combineSignals(signal, pending.signal);
 
-    this.checkAborted(signal);
+    this.checkAborted(globalSignal);
 
     if (fixedVersionQuery === 'ttml' && isDevModeEnabled()) {
       const devContent = await getDevLyric(id);
-      this.checkAborted(signal);
+      this.checkAborted(globalSignal);
       if (devContent) {
         logger.info(logger.msg('devmode.using_file', { id }));
+        removePendingRequest(id);
         return { found: true, id, format: 'ttml', source: 'repository', content: devContent };
       }
     }
@@ -106,11 +109,12 @@ export class LyricProvider {
     // 优先走同步快速路径（内存命中时零 await 开销），miss 时再走异步文件读取
     logger.debug(`检查本地缓存: ${id}`);
     const localCached = localLyricCache.getCachedLyricSync(id) ?? await localLyricCache.getCachedLyric(id);
-    this.checkAborted(signal);
+    this.checkAborted(globalSignal);
     if (localCached) {
       logger.info(logger.msg('provider.local_hit', { id }));
       const result: SearchResult = { found: true, id, format: 'ttml', source: 'repository', content: localCached };
       lyricsCache.set(`search:${id}:ttml:normalized`, result);
+      removePendingRequest(id);
       return result;
     }
     logger.debug(`本地缓存未命中: ${id}`);
@@ -128,6 +132,7 @@ export class LyricProvider {
           logger.info(logger.msg('provider.local_override_search', { id }));
           const result: SearchResult = { found: true, id, format: 'ttml', source: 'repository', content: localVersion };
           lyricsCache.set(`search:${id}:ttml:normalized`, result);
+          removePendingRequest(id);
           return result;
         }
       }
@@ -140,16 +145,28 @@ export class LyricProvider {
           }
         }
       }
+      removePendingRequest(id);
       return cachedResult;
     }
 
-    this.checkAborted(signal);
+    this.checkAborted(globalSignal);
 
     if (isValidFormat(fixedVersionQuery)) {
-      const result = await this.handleFixedVersionSearch(id, fixedVersionQuery, fast, signal);
+      const result = await this.handleFixedVersionSearch(id, fixedVersionQuery, fast, globalSignal);
       if (result.found) {
         lyricsCache.set(cacheKey, result);
+        removePendingRequest(id);
+        return result;
       }
+      // TTML fixedVersion 搜索失败时，也触发重试机制
+      if (fixedVersionQuery === 'ttml') {
+        const retryResult = await this.retryIfTtmlAvailable(id, globalSignal);
+        if (retryResult) {
+          removePendingRequest(id);
+          return retryResult;
+        }
+      }
+      removePendingRequest(id);
       return result;
     }
 
@@ -162,15 +179,12 @@ export class LyricProvider {
       controller.abort(new Error(`Search timed out after ${TOTAL_TIMEOUT_MS}ms`));
     }, TOTAL_TIMEOUT_MS);
 
-    // 应用层请求去重：新请求取消旧请求
-    cancelPendingRequest(id);
-
     try {
-      // 创建组合中断信号：HTTP请求中断 + 全局超时
-      const combinedSignal = this.combineSignals(signal, controller.signal);
+      // 创建组合中断信号：全局请求中断 + 超时控制
+      const timeoutSignal = this.combineSignals(globalSignal, controller.signal);
       
-      const repoTask = this.findAllInRepo(id, fallbackQuery, combinedSignal);
-      const externalApiTask = fast ? Promise.resolve(null as SearchResult | null) : this.findInExternalApi(id, combinedSignal);
+      const repoTask = this.findAllInRepo(id, fallbackQuery, timeoutSignal);
+      const externalApiTask = fast ? Promise.resolve(null as SearchResult | null) : this.findInExternalApi(id, timeoutSignal);
 
       if (fast) {
         logger.info(logger.msg('provider.fast_mode_skip_external'));
@@ -197,6 +211,9 @@ export class LyricProvider {
 
       clearTimeout(overallTimeoutId);
 
+      // 被 cancelAllPendingRequests 取消时，不返回 found:false（避免覆盖客户端歌词）
+      this.checkAborted(globalSignal);
+
       let repoResultFromSettled: (SearchResult & { found: true }) | (SearchResult & { found: false }) | null = null;
       let externalResultFromSettled: (SearchResult & { found: true }) | (SearchResult & { found: false }) | null = null;
 
@@ -215,17 +232,21 @@ export class LyricProvider {
       if (repoResultFromSettled?.found && repoResultFromSettled.format === 'ttml') {
         logger.info(logger.msg('provider.repo_hit_ttml', { id }));
         lyricsCache.set(cacheKey, repoResultFromSettled);
+        // 同时写入归一化 TTML 键，确保并发请求的重试能跨路径命中
+        lyricsCache.set(`search:${id}:ttml:normalized`, repoResultFromSettled);
         // TTML 获取成功后，立即写入本地缓存
         if (localLyricCache.shouldCache(id)) {
           await localLyricCache.cacheLyric(id, repoResultFromSettled.content, 'main');
           logger.info(logger.msg('provider.local_cached', { id }));
         }
+        removePendingRequest(id);
         return repoResultFromSettled;
       }
 
       if (repoResultFromSettled?.found) {
         logger.info(logger.msg('provider.repo_hit', { id, format: repoResultFromSettled.format.toUpperCase() }));
         lyricsCache.set(cacheKey, repoResultFromSettled);
+        removePendingRequest(id);
         return repoResultFromSettled;
       }
       
@@ -238,6 +259,11 @@ export class LyricProvider {
       if (externalResultFromSettled?.found) {
         logger.info(logger.msg('provider.external_hit', { id, format: externalResultFromSettled.format.toUpperCase() }));
         lyricsCache.set(cacheKey, externalResultFromSettled);
+        // 同时写入归一化 TTML 键
+        if (externalResultFromSettled.format === 'ttml') {
+          lyricsCache.set(`search:${id}:ttml:normalized`, externalResultFromSettled);
+        }
+        removePendingRequest(id);
         return externalResultFromSettled;
       }
       if (externalResultFromSettled && !externalResultFromSettled.found) {
@@ -294,11 +320,25 @@ export class LyricProvider {
       }
 
       logger.info(logger.msg('provider.search_end', { id, error: finalErrorMsg, status: finalStatusCode }));
+
+      // 监测重试：TTML 实际存在但本次搜索返回未找到时，延迟重试最多 3 次
+      const retryResult = await this.retryIfTtmlAvailable(id, globalSignal);
+      if (retryResult) {
+        removePendingRequest(id);
+        return retryResult;
+      }
+
+      removePendingRequest(id);
       return { found: false, id, error: finalErrorMsg, statusCode: finalStatusCode };
 
     } catch (error) {
       clearTimeout(overallTimeoutId);
       const err = error instanceof Error ? error : new Error(String(error));
+      removePendingRequest(id);
+      // abort 时不返回 found:false（避免覆盖客户端已显示的歌词），直接抛出让上层返回 499
+      if (err.message === 'Request aborted') {
+        throw err;
+      }
       logger.error(logger.msg('provider.search_error', { id, message: err.message }), err);
       return {
         found: false,
@@ -401,6 +441,8 @@ export class LyricProvider {
         else finalStatusCode = 500; // 如果没有具体错误码但有错误信息
       }
       
+      // 被 cancelAllPendingRequests 取消时，不返回 found:false
+      this.checkAborted(signal);
       return { found: false, id, error: finalErrorMsg, statusCode: finalStatusCode };
 
     } else { // 对于非 yrc/lrc 格式 (例如 ttml, qrc)，或 fast 模式下，只检查仓库
@@ -417,6 +459,11 @@ export class LyricProvider {
           };
           lyricsCache.set(cacheKey, result);
           
+          // 同时写入归一化 TTML 键
+          if (fixedVersionQuery === 'ttml') {
+            lyricsCache.set(`search:${id}:ttml:normalized`, result);
+          }
+          
           // TTML 格式获取成功后，立即写入本地缓存，确保下次请求直接命中
           if (fixedVersionQuery === 'ttml' && localLyricCache.shouldCache(id)) {
             await localLyricCache.cacheLyric(id, repoResult.content, 'main');
@@ -427,6 +474,7 @@ export class LyricProvider {
         }
         
         if (repoResult.status === 'error') {
+          this.checkAborted(signal);
           return { 
             found: false, 
             id, 
@@ -435,9 +483,14 @@ export class LyricProvider {
           };
         }
         // status === 'notfound'
+        this.checkAborted(signal);
         return { found: false, id, error: `Lyrics not found for fixed format: ${fixedVersionQuery}`, statusCode: 404 };
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
+        // abort 时直接抛出，不返回 found:false
+        if (err.message === 'Request aborted') {
+          throw err;
+        }
         logger.error(logger.msg('provider.repo_error', { id, format: fixedVersionQuery, message: err.message }));
         return { 
           found: false, 
@@ -472,6 +525,10 @@ export class LyricProvider {
       if (ttmlResult.status === 'found') {
         logger.info(logger.msg('provider.repo_ttml_hit', { id }));
         lyricsCache.set(ttmlCacheKey, ttmlResult);
+        // 同时写入归一化 TTML 键，确保其他路径的重试能跨路径命中
+        lyricsCache.set(`search:${id}:ttml:normalized`, {
+          found: true as const, id, format: ttmlResult.format, source: 'repository', content: ttmlResult.content
+        });
         return {
           found: true as const,
           id,
@@ -489,6 +546,9 @@ export class LyricProvider {
       const msg = error instanceof Error ? error.message : String(error);
       logger.warn(logger.msg('provider.repo_ttml_exception', { id, message: msg }));
     }
+
+    // 被 cancelAllPendingRequests 取消时，不静默返回 null（让上层感知 abort）
+    this.checkAborted(signal);
 
     return null;
   }
@@ -522,6 +582,9 @@ export class LyricProvider {
         return result;
       }
       
+      // 被 cancelAllPendingRequests 取消时，不返回 found:false
+      this.checkAborted(signal);
+
       if (externalResult.status === 'error') {
         return { 
           found: false, 
@@ -536,6 +599,10 @@ export class LyricProvider {
 
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
+      // abort 时直接抛出，不返回 found:false
+      if (err.message === 'Request aborted') {
+        throw err;
+      }
       logger.error(logger.msg('provider.external_exception', { id, message: err.message }));
       
       return {
@@ -545,6 +612,84 @@ export class LyricProvider {
         statusCode: 502
       };
     }
+  }
+
+  /**
+   * 监测重试机制：当搜索返回 found:false 时，检测 TTML 是否已被并发请求写入缓存。
+   * 镜像源去重已解决并发竞争，重试仅做缓存探查 + 一次安全网拉取，切歌时自动终止。
+   */
+  private async retryIfTtmlAvailable(id: string, signal?: AbortSignal): Promise<SearchResult | null> {
+    const MAX_CACHE_PROBES = 3;
+    const PROBE_DELAY_MS = 100;
+    const normalizedKey = `search:${id}:ttml:normalized`;
+
+    const checkAllCaches = (): SearchResult | null => {
+      // 检查本地文件缓存
+      const localCached = localLyricCache.getCachedLyricSync(id);
+      if (localCached) return { found: true as const, id, format: 'ttml', source: 'repository', content: localCached };
+
+      // 检查归一化 TTML 缓存（所有路径统一写入）
+      const normalized = lyricsCache.get(normalizedKey);
+      if (normalized?.found && normalized.format === 'ttml' && normalized.content) return normalized;
+
+      // 检查仓库层缓存
+      const repoCached = lyricsCache.get(`repo:${id}:ttml`);
+      if (repoCached && repoCached.status === 'found' && repoCached.content) {
+        const result: SearchResult = { found: true as const, id, format: 'ttml', source: 'repository', content: repoCached.content };
+        lyricsCache.set(normalizedKey, result);
+        return result;
+      }
+
+      return null;
+    };
+
+    // 1. 立即检查所有缓存
+    let hit = checkAllCaches();
+    if (hit) {
+      logger.info(logger.msg('provider.retry_cache_immediate', { id }));
+      return hit;
+    }
+
+    // 2. 延迟后再次探查（等待并发请求完成并写入缓存）
+    for (let i = 0; i < MAX_CACHE_PROBES; i++) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, PROBE_DELAY_MS);
+        if (signal) {
+          const onAbort = () => { clearTimeout(timer); reject(new Error('Request aborted')); };
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+      }).catch(() => null); // abort 时静默返回 null
+
+      if (signal?.aborted) return null;
+
+      hit = checkAllCaches();
+      if (hit) {
+        logger.info(logger.msg('provider.retry_cache_probe_hit', { id, probe: i + 1 }));
+        return hit;
+      }
+    }
+
+    // 3. 安全网：所有缓存均未命中，做最后一次镜像拉取
+    if (signal?.aborted) return null;
+
+    logger.warn(logger.msg('provider.retry_repo_safety', { id }));
+    try {
+      const repoResult = await this.repoFetcher.fetch(id, 'ttml', signal);
+      if (repoResult.status === 'found') {
+        const result: SearchResult = { found: true as const, id, format: repoResult.format, source: 'repository', content: repoResult.content };
+        lyricsCache.set(normalizedKey, result);
+        if (localLyricCache.shouldCache(id)) {
+          await localLyricCache.cacheLyric(id, repoResult.content, 'main');
+        }
+        logger.info(logger.msg('provider.retry_repo_safety_hit', { id }));
+        return result;
+      }
+    } catch {
+      // 忽略安全网中的错误
+    }
+
+    logger.info(logger.msg('provider.retry_exhausted', { id }));
+    return null;
   }
 
   private logRepoOutcome(repoResultSettled: PromiseSettledResult<SearchResult | null>) {
