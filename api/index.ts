@@ -192,26 +192,6 @@ app.get('/ncm-lyrics/:id', async (c) => {
     return c.text('Invalid song ID');
   }
 
-  // 先用归一化内存缓存键快速检查（纯同步操作，零 I/O）
-  const memCacheKey = `search:${songId}:ttml:normalized`;
-  const memCached = lyricsCache.get(memCacheKey);
-  if (memCached && memCached.found && memCached.format === 'ttml' && memCached.content) {
-    const content = memCached.content;
-    const contentHash = createHash('md5').update(content).digest('hex');
-
-    // ETag 条件请求：内容未变则返回 304，节省带宽
-    const ifNoneMatch = c.req.header('If-None-Match');
-    if (ifNoneMatch === `"${contentHash}"`) {
-      apiLogger.info(apiLogger.msg('api.ttml_304', { id: songId }));
-      return new Response(null, { status: 304 });
-    }
-
-    c.header('Content-Type', 'application/xml; charset=utf-8');
-    c.header('ETag', `"${contentHash}"`);
-    c.header('Cache-Control', 'public, max-age=3600, must-revalidate');
-    return c.text(content);
-  }
-
   apiLogger.info(apiLogger.msg('api.ttml_request', { id: songId }));
 
   try {

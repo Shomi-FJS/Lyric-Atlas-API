@@ -1,5 +1,6 @@
 import { getLogger } from './utils';
 import { createHash } from 'crypto';
+import { existsSync } from 'fs';
 import { readFile, writeFile, mkdir, unlink, access } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -12,8 +13,11 @@ const __dirname = dirname(__filename);
 const CACHE_DIR = join(__dirname, '..', 'lyrics-cache');
 const META_FILE = join(CACHE_DIR, 'cache-meta.json');
 const IDS_FILE = join(CACHE_DIR, 'ncm-ids.json');
-const PLAY_COUNT_THRESHOLD = 2;
-const INACTIVE_DAYS_THRESHOLD = 15;
+const REQUEST_COUNTS_FILE = join(CACHE_DIR, 'ttml-request-counts.json');
+const PLAY_COUNT_THRESHOLD = 3;
+const TTML_REQUEST_THRESHOLD = 2;
+const INACTIVE_DAYS_THRESHOLD = 14;
+const PLAY_DEBOUNCE_MS = 5000;
 const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const MAX_MEMORY_CACHE_SIZE = 500;
 const FLUSH_INTERVAL_MS = 3000; // 防抖写入间隔（毫秒）
@@ -43,10 +47,14 @@ export class LocalLyricCache {
   // 防抖写入
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty: boolean = false;
+  private ttmlRequestCounts: Map<string, number> = new Map();
+  private requestCountsDirty: boolean = false;
   // 互斥锁
   private writeLock: Promise<void> = Promise.resolve();
   // 操作锁（防止 rebuildMeta / updateCacheFromRemote 并发执行）
   private operationLock: Promise<void> = Promise.resolve();
+  // 是否在定时维护中清理长时间未播放的歌词（默认开启）
+  private inactiveCleanupEnabled: boolean = true;
 
   constructor() {
     this.meta = { lyrics: {}, lastUpdateCheck: 0 };
@@ -71,6 +79,7 @@ export class LocalLyricCache {
     try {
       await this.ensureCacheDir();
       await this.loadMeta();
+      await this.loadRequestCounts();
       await this.saveIdsFile();
       this.initialized = true;
       this.startUpdateCheck();
@@ -93,6 +102,22 @@ export class LocalLyricCache {
     try {
       const data = await readFile(META_FILE, 'utf-8');
       this.meta = JSON.parse(data);
+      let staleCleaned = 0;
+      for (const [id, m] of Object.entries(this.meta.lyrics)) {
+        if (m.cachedAt > 0) {
+          try {
+            await access(this.getCacheFilePath(id));
+          } catch {
+            m.cachedAt = 0;
+            m.contentHash = '';
+            staleCleaned++;
+            logger.warn(logger.msg('localcache.stale_meta_cleaned', { id }));
+          }
+        }
+      }
+      if (staleCleaned > 0) {
+        await this.saveMetaNow();
+      }
       logger.info(logger.msg('localcache.loaded_meta', { count: Object.keys(this.meta.lyrics).length }));
     } catch {
       this.meta = { lyrics: {}, lastUpdateCheck: 0 };
@@ -101,12 +126,12 @@ export class LocalLyricCache {
   }
 
   private async saveMetaNow(): Promise<void> {
-    // 互斥锁：确保同一时间只有一个写入操作在执行
     this.writeLock = this.writeLock.then(async () => {
       try {
         await writeFile(META_FILE, JSON.stringify(this.meta));
         await this.saveIdsFile();
       } catch (err) {
+        this.dirty = true;
         logger.error(logger.msg('localcache.save_meta_failed'), err);
       }
     });
@@ -116,11 +141,58 @@ export class LocalLyricCache {
   // 保存 ncm-ids.json：缓存文件夹中所有 TTML 对应的 NCM ID 列表（每行一个）
   private async saveIdsFile(): Promise<void> {
     try {
-      const ids = Object.keys(this.meta.lyrics).sort((a, b) => Number(a) - Number(b));
+      const ids = Object.entries(this.meta.lyrics)
+        .filter(([, m]) => m.cachedAt > 0)
+        .map(([id]) => id)
+        .sort((a, b) => Number(a) - Number(b));
       await writeFile(IDS_FILE, JSON.stringify(ids, null, 2));
     } catch (err) {
       logger.error(logger.msg('localcache.save_meta_failed'), err);
     }
+  }
+
+  private async loadRequestCounts(): Promise<void> {
+    try {
+      const data = await readFile(REQUEST_COUNTS_FILE, 'utf-8');
+      const parsed: Record<string, number> = JSON.parse(data);
+      this.ttmlRequestCounts = new Map(Object.entries(parsed));
+      logger.debug(logger.msg('localcache.request_counts_loaded', { count: this.ttmlRequestCounts.size }));
+    } catch {
+      this.ttmlRequestCounts = new Map();
+    }
+  }
+
+  private async saveRequestCounts(): Promise<void> {
+    try {
+      const obj: Record<string, number> = {};
+      for (const [id, count] of this.ttmlRequestCounts) {
+        obj[id] = count;
+      }
+      await writeFile(REQUEST_COUNTS_FILE, JSON.stringify(obj));
+    } catch (err) {
+      this.requestCountsDirty = true;
+      logger.error(logger.msg('localcache.save_request_counts_failed'), err);
+    }
+  }
+
+  recordTtmlRequest(id: string): number {
+    const prev = this.ttmlRequestCounts.get(id) ?? 0;
+    const next = prev + 1;
+    this.ttmlRequestCounts.set(id, next);
+    this.requestCountsDirty = true;
+    this.scheduleFlush();
+    logger.debug(logger.msg('localcache.ttml_request_recorded', { id, count: next }));
+    return next;
+  }
+
+  shouldCacheByRequests(id: string): boolean {
+    return (this.ttmlRequestCounts.get(id) ?? 0) >= TTML_REQUEST_THRESHOLD;
+  }
+
+  async resetRequestCounts(): Promise<void> {
+    this.ttmlRequestCounts.clear();
+    this.requestCountsDirty = true;
+    await this.saveRequestCounts();
   }
 
   private scheduleFlush(): void {
@@ -128,9 +200,15 @@ export class LocalLyricCache {
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
-      if (this.dirty) {
+      const metaDirty = this.dirty;
+      const reqDirty = this.requestCountsDirty;
+      if (metaDirty) {
         this.dirty = false;
         this.saveMetaNow().catch(() => {});
+      }
+      if (reqDirty) {
+        this.requestCountsDirty = false;
+        this.saveRequestCounts().catch(() => {});
       }
     }, FLUSH_INTERVAL_MS);
   }
@@ -144,25 +222,31 @@ export class LocalLyricCache {
   }
 
   async recordPlay(id: string): Promise<void> {
+    const now = Date.now();
     if (!this.meta.lyrics[id]) {
       this.meta.lyrics[id] = {
         playCount: 0,
-        lastPlayedAt: Date.now(),
+        lastPlayedAt: 0,
         cachedAt: 0,
         contentHash: '',
         source: 'main'
       };
     }
-    this.meta.lyrics[id].playCount++;
-    this.meta.lyrics[id].lastPlayedAt = Date.now();
+    const meta = this.meta.lyrics[id];
+    if (now - meta.lastPlayedAt < PLAY_DEBOUNCE_MS) {
+      logger.debug(logger.msg('localcache.play_debounced', { id }));
+      return;
+    }
+    meta.playCount++;
+    meta.lastPlayedAt = now;
     this.scheduleFlush();
-    logger.debug(logger.msg('localcache.play_recorded', { id, count: this.meta.lyrics[id].playCount }));
+    logger.debug(logger.msg('localcache.play_recorded', { id, count: meta.playCount }));
   }
 
   shouldCache(id: string): boolean {
     const meta = this.meta.lyrics[id];
     if (!meta) return false;
-    return meta.playCount >= PLAY_COUNT_THRESHOLD;
+    return meta.playCount > PLAY_COUNT_THRESHOLD;
   }
 
   async isCached(id: string): Promise<boolean> {
@@ -178,6 +262,10 @@ export class LocalLyricCache {
   getCachedLyricSync(id: string): string | null {
     const cached = this.contentCache.get(id);
     if (cached) {
+      if (!existsSync(this.getCacheFilePath(id))) {
+        this.contentCache.delete(id);
+        return null;
+      }
       // 更新访问顺序（真正的 LRU：delete + 重新 set 将 key 移到尾部）
       this.contentCache.delete(id);
       this.contentCache.set(id, cached);
@@ -189,6 +277,12 @@ export class LocalLyricCache {
   async getCachedLyric(id: string): Promise<string | null> {
     const cached = this.contentCache.get(id);
     if (cached) {
+      try {
+        await access(this.getCacheFilePath(id));
+      } catch {
+        this.contentCache.delete(id);
+        return null;
+      }
       this.contentCache.delete(id);
       this.contentCache.set(id, cached);
       logger.debug(`内存缓存命中: ${id}`);
@@ -255,6 +349,9 @@ export class LocalLyricCache {
 
   async deleteCache(id: string): Promise<boolean> {
     this.contentCache.delete(id);
+    this.ttmlRequestCounts.delete(id);
+    this.requestCountsDirty = true;
+    await this.clearSearchCache();
 
     try {
       const filePath = this.getCacheFilePath(id);
@@ -274,12 +371,34 @@ export class LocalLyricCache {
     }
   }
 
+  private async clearSearchCache(): Promise<void> {
+    try {
+      const { lyricsCache, metadataCache } = await import('./cache');
+      lyricsCache.clear();
+      metadataCache.clear();
+    } catch (err) {
+      logger.warn('清理内存搜索缓存失败', err);
+    }
+  }
+
   getCacheDir(): string {
     return CACHE_DIR;
   }
 
   getMeta(): CacheMeta {
     return this.meta;
+  }
+
+  setInactiveCleanupEnabled(enabled: boolean): void {
+    this.inactiveCleanupEnabled = enabled;
+  }
+
+  isInactiveCleanupEnabled(): boolean {
+    return this.inactiveCleanupEnabled;
+  }
+
+  getInactiveDaysThreshold(): number {
+    return INACTIVE_DAYS_THRESHOLD;
   }
 
   async cleanupInactive(): Promise<number> {
@@ -844,7 +963,11 @@ export class LocalLyricCache {
   private startUpdateCheck(): void {
     this.updateCheckTimer = setInterval(async () => {
       logger.info(logger.msg('localcache.periodic_maintenance'));
-      await this.cleanupInactive();
+      if (this.inactiveCleanupEnabled) {
+        await this.cleanupInactive();
+      } else {
+        logger.info(logger.msg('localcache.inactive_cleanup_skipped'));
+      }
 
       try {
         const { buildRawUrl, getLogger } = await import('./utils');

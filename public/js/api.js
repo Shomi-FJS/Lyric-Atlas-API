@@ -107,6 +107,13 @@ const api = {
     return response.json();
   },
   
+  async toggleInactiveCleanup(enabled) {
+    return this.request('/inactive-cleanup', {
+      method: 'POST',
+      body: JSON.stringify({ enabled })
+    });
+  },
+
   async toggleDevMode(enabled) {
     return this.request('/dev-mode', {
       method: 'POST',
@@ -124,6 +131,14 @@ const api = {
 
   async rebuildFromIds() {
     return this.request('/cache/rebuild-from-ids', { method: 'POST' });
+  },
+
+  async clearMemoryCache() {
+    return this.request('/cache/clear-memory', { method: 'POST' });
+  },
+
+  async resetRequestCounts() {
+    return this.request('/cache/reset-request-counts', { method: 'POST' });
   },
   
   async getDevList() {

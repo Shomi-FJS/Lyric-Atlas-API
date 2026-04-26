@@ -102,9 +102,6 @@ export class LyricProvider {
       }
     }
 
-    // 记录播放次数（fire-and-forget，不阻塞搜索流程）
-    localLyricCache.recordPlay(id).catch(() => {});
-
     // 本地文件缓存检查不受 fixedVersion 限制，确保已缓存的 TTML 始终被优先使用
     // 优先走同步快速路径（内存命中时零 await 开销），miss 时再走异步文件读取
     logger.debug(`检查本地缓存: ${id}`);
@@ -112,6 +109,10 @@ export class LyricProvider {
     this.checkAborted(globalSignal);
     if (localCached) {
       logger.info(logger.msg('provider.local_hit', { id }));
+      const localMeta = localLyricCache.getMeta().lyrics[id];
+      if (localMeta && localMeta.cachedAt === 0) {
+        await localLyricCache.cacheLyric(id, localCached, localMeta.source || 'main');
+      }
       const result: SearchResult = { found: true, id, format: 'ttml', source: 'repository', content: localCached };
       lyricsCache.set(`search:${id}:ttml:normalized`, result);
       removePendingRequest(id);
@@ -125,7 +126,6 @@ export class LyricProvider {
       : `search:${id}:${fixedVersionQuery || 'none'}:${fallbackQuery || 'none'}:${fast ? 'fast' : 'full'}`;
     const cachedResult = lyricsCache.get(cacheKey);
     if (cachedResult) {
-      // lyricsCache 命中时，若为 TTML 且本地已有更新版本，优先返回本地版本
       if (cachedResult.found && cachedResult.format === 'ttml' && cachedResult.content) {
         const localVersion = localLyricCache.getCachedLyricSync(id);
         if (localVersion) {
@@ -137,14 +137,6 @@ export class LyricProvider {
         }
       }
       logger.info(logger.msg('provider.search_cache_hit', { id, key: cacheKey }));
-      if (cachedResult.found && cachedResult.format === 'ttml' && cachedResult.content) {
-        if (localLyricCache.shouldCache(id)) {
-          const isCached = await localLyricCache.isCached(id);
-          if (!isCached) {
-            await localLyricCache.cacheLyric(id, cachedResult.content, 'main');
-          }
-        }
-      }
       removePendingRequest(id);
       return cachedResult;
     }
@@ -208,10 +200,6 @@ export class LyricProvider {
           logger.info(logger.msg('provider.repo_hit_ttml', { id }));
           lyricsCache.set(cacheKey, repoResult);
           lyricsCache.set(`search:${id}:ttml:normalized`, repoResult);
-          if (localLyricCache.shouldCache(id)) {
-            await localLyricCache.cacheLyric(id, repoResult.content, 'main');
-            logger.info(logger.msg('provider.local_cached', { id }));
-          }
         } else {
           logger.info(logger.msg('provider.repo_hit', { id, format: repoResult.format.toUpperCase() }));
           lyricsCache.set(cacheKey, repoResult);
@@ -433,12 +421,6 @@ export class LyricProvider {
           // 同时写入归一化 TTML 键
           if (fixedVersionQuery === 'ttml') {
             lyricsCache.set(`search:${id}:ttml:normalized`, result);
-          }
-          
-          // TTML 格式获取成功后，立即写入本地缓存，确保下次请求直接命中
-          if (fixedVersionQuery === 'ttml' && localLyricCache.shouldCache(id)) {
-            await localLyricCache.cacheLyric(id, repoResult.content, 'main');
-            logger.info(logger.msg('provider.local_cached', { id }));
           }
           
           return result;

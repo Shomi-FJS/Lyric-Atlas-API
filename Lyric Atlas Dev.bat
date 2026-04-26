@@ -2,7 +2,8 @@
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
-set "PROJECT_DIR=D:\a\applemusic-like-lyrics\Lyric-Atlas-API"
+set "PROJECT_DIR=%~dp0"
+if "%PROJECT_DIR:~-1%"=="\" set "PROJECT_DIR=%PROJECT_DIR:~0,-1%"
 set "PID_FILE=%PROJECT_DIR%\.server.pid"
 
 :menu
@@ -63,18 +64,20 @@ goto menu
 cls
 echo.
 echo  ========================================
-echo    Lyric Atlas API - Foreground Mode
+echo    Lyric Atlas API - Dev Mode
 echo  ========================================
 echo.
 echo  Main API:    http://localhost:3000
 echo  Cache Admin: http://localhost:8300
 echo.
-echo  Press Ctrl+C to stop the server.
+echo  Auto-restart: enabled on code changes.
+echo  Press Ctrl+F5 to force restart ports 3000/8300.
+echo  Press Ctrl+C to stop dev mode.
 echo  ========================================
 echo.
 
 cd /d "%PROJECT_DIR%"
-pnpm run dev
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_DIR%\scripts\dev-watch-restart.ps1" -ProjectDir "%PROJECT_DIR%"
 goto menu
 
 :start_background

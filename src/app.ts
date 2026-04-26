@@ -167,26 +167,10 @@ app.get('/ncm-lyrics/:id', async (c) => {
     return c.text('Invalid song ID');
   }
 
-  // 先用归一化内存缓存键快速检查（纯同步操作，零 I/O）
-  const memCacheKey = `search:${songId}:ttml:normalized`;
-  const memCached = lyricsCache.get(memCacheKey);
-  if (memCached && memCached.found && memCached.format === 'ttml' && memCached.content) {
-    const content = memCached.content;
-    const contentHash = crypto.createHash('md5').update(content).digest('hex');
-
-    const ifNoneMatch = c.req.header('If-None-Match');
-    if (ifNoneMatch === `"${contentHash}"`) {
-      apiLogger.info(apiLogger.msg('api.ttml_304', { id: songId }));
-      return new Response(null, { status: 304 });
-    }
-
-    c.header('Content-Type', 'application/xml; charset=utf-8');
-    c.header('ETag', `"${contentHash}"`);
-    c.header('Cache-Control', 'public, max-age=3600, must-revalidate');
-    return c.text(content);
-  }
-
   apiLogger.info(apiLogger.msg('api.ttml_request', { id: songId }));
+
+  localLyricCache.recordTtmlRequest(songId);
+  await localLyricCache.recordPlay(songId);
 
   try {
     const lyricProvider = getLyricProvider();
@@ -194,6 +178,14 @@ app.get('/ncm-lyrics/:id', async (c) => {
 
     if (result.found && result.format === 'ttml') {
       const content = result.content;
+
+      if (localLyricCache.shouldCacheByRequests(songId)) {
+        const isCached = await localLyricCache.isCached(songId);
+        if (!isCached) {
+          await localLyricCache.cacheLyric(songId, content, 'main');
+        }
+      }
+
       const contentHash = crypto.createHash('md5').update(content).digest('hex');
 
       const ifNoneMatch = c.req.header('If-None-Match');

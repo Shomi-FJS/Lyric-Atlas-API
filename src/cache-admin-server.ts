@@ -16,6 +16,7 @@ const LYRICS_DEV_DIR = path.join(process.cwd(), 'lyrics-dev');
 const SETTINGS_FILE = path.join(process.cwd(), 'cache-admin-settings.json');
 
 let devModeEnabled = false;
+let inactiveCleanupEnabled = true;
 
 function parseTTMLMetadata(content: string): Record<string, string[]> {
   const metadata: Record<string, string[]> = {};
@@ -51,15 +52,22 @@ async function loadSettings(): Promise<void> {
     const data = await fs.readFile(SETTINGS_FILE, 'utf-8');
     const settings = JSON.parse(data);
     devModeEnabled = settings.devModeEnabled || false;
+    inactiveCleanupEnabled = settings.inactiveCleanupEnabled ?? true;
+    localLyricCache.setInactiveCleanupEnabled(inactiveCleanupEnabled);
     logger.info(logger.msg('admin.settings_loaded', { status: devModeEnabled }));
   } catch {
     devModeEnabled = false;
+    inactiveCleanupEnabled = true;
+    localLyricCache.setInactiveCleanupEnabled(inactiveCleanupEnabled);
     logger.info(logger.msg('admin.settings_not_found'));
   }
 }
 
 async function saveSettings(): Promise<void> {
-  await fs.writeFile(SETTINGS_FILE, JSON.stringify({ devModeEnabled }, null, 2));
+  await fs.writeFile(
+    SETTINGS_FILE,
+    JSON.stringify({ devModeEnabled, inactiveCleanupEnabled }, null, 2)
+  );
 }
 
 async function ensureLyricsDevDir(): Promise<void> {
@@ -78,6 +86,8 @@ app.get('/api/status', async (c) => {
   return c.json({
     success: true,
     devModeEnabled,
+    inactiveCleanupEnabled,
+    inactiveDaysThreshold: localLyricCache.getInactiveDaysThreshold(),
     cacheDir: localLyricCache.getCacheDir(),
     devDir: LYRICS_DEV_DIR
   });
@@ -280,6 +290,30 @@ app.post('/api/cache/rebuild-from-ids', async (c) => {
   }
 });
 
+app.post('/api/cache/clear-memory', async (c) => {
+  try {
+    const { lyricsCache, metadataCache } = await import('../api/cache');
+    lyricsCache.clear();
+    metadataCache.clear();
+    logger.info(logger.msg('admin.clear_memory_done'));
+    return c.json({ success: true });
+  } catch (err) {
+    logger.error(logger.msg('admin.clear_memory_failed'), err);
+    return c.json({ success: false, error: '清空内存缓存失败' }, 500);
+  }
+});
+
+app.post('/api/cache/reset-request-counts', async (c) => {
+  try {
+    await localLyricCache.resetRequestCounts();
+    logger.info(logger.msg('admin.reset_request_counts_done'));
+    return c.json({ success: true });
+  } catch (err) {
+    logger.error(logger.msg('admin.reset_request_counts_failed'), err);
+    return c.json({ success: false, error: '重置请求计数失败' }, 500);
+  }
+});
+
 app.post('/api/dev-mode', async (c) => {
   try {
     const body = await c.req.json();
@@ -290,6 +324,27 @@ app.post('/api/dev-mode', async (c) => {
   } catch (err) {
     logger.error(logger.msg('admin.toggle_dev_failed'), err);
     return c.json({ success: false, error: '更新开发模式失败' }, 500);
+  }
+});
+
+app.post('/api/inactive-cleanup', async (c) => {
+  try {
+    const body = await c.req.json();
+    inactiveCleanupEnabled = !!body.enabled;
+    localLyricCache.setInactiveCleanupEnabled(inactiveCleanupEnabled);
+    await saveSettings();
+    logger.info(logger.msg('admin.inactive_cleanup_toggled', {
+      days: localLyricCache.getInactiveDaysThreshold(),
+      status: inactiveCleanupEnabled ? '已启用' : '已禁用'
+    }));
+    return c.json({
+      success: true,
+      inactiveCleanupEnabled,
+      inactiveDaysThreshold: localLyricCache.getInactiveDaysThreshold()
+    });
+  } catch (err) {
+    logger.error(logger.msg('admin.toggle_inactive_cleanup_failed'), err);
+    return c.json({ success: false, error: '切换未活跃清理开关失败' }, 500);
   }
 });
 

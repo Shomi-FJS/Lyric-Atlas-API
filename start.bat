@@ -31,3 +31,8 @@ echo ========================================
 echo.
 
 pnpm run prod
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Production server exited with an error. Code: %errorlevel%
+    pause
+)

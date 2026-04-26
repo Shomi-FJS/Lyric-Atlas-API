@@ -31,3 +31,8 @@ echo ========================================
 echo.
 
 pnpm run dev
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Dev server exited with an error. Code: %errorlevel%
+    pause
+)

@@ -78,6 +78,22 @@ const LOG_MESSAGES: Record<string, Record<string, string>> = {
     zh: "记录当前播放ID: {id}，播放次数: {count}",
     en: "Recorded play for {id}, count: {count}"
   },
+  'localcache.play_debounced': {
+    zh: "播放去抖，忽略重复计数: {id}",
+    en: "Play debounced, skipping duplicate count for {id}"
+  },
+  'localcache.request_counts_loaded': {
+    zh: "已加载 TTML 请求计数: {count} 条",
+    en: "Loaded TTML request counts: {count} entries"
+  },
+  'localcache.save_request_counts_failed': {
+    zh: "保存 TTML 请求计数失败",
+    en: "Failed to save TTML request counts"
+  },
+  'localcache.ttml_request_recorded': {
+    zh: "记录 TTML 请求: {id}，累计次数: {count}",
+    en: "Recorded TTML request for {id}, count: {count}"
+  },
   'provider.processing': {
     zh: "处理请求 ID: {id}，格式: {format}，回退: {fallback}",
     en: "Processing ID: {id}, fixed: {format}, fallback: {fallback}"
@@ -526,6 +542,10 @@ const LOG_MESSAGES: Record<string, Record<string, string>> = {
     zh: "开始定期维护...",
     en: "Starting periodic maintenance..."
   },
+  'localcache.inactive_cleanup_skipped': {
+    zh: "已跳过未活跃清理（开关已关闭）",
+    en: "Inactive cleanup skipped (toggle disabled)"
+  },
   'localcache.periodic_updated': {
     zh: "定期更新: {count} 个歌词已从远程更新",
     en: "Periodic update: {count} lyric(s) updated from remote"
@@ -575,6 +595,14 @@ const LOG_MESSAGES: Record<string, Record<string, string>> = {
     zh: "开发模式{status}",
     en: "Dev mode {status}"
   },
+  'admin.inactive_cleanup_toggled': {
+    zh: "未活跃歌词清理（{days}天）{status}",
+    en: "Inactive lyric cleanup ({days}d) {status}"
+  },
+  'admin.toggle_inactive_cleanup_failed': {
+    zh: "切换未活跃清理开关失败",
+    en: "Failed to toggle inactive cleanup"
+  },
   'admin.rebuild_complete': {
     zh: "元数据重建完成: total={total}, added={added}, updated={updated}, removed={removed}",
     en: "Meta rebuild complete: total={total}, added={added}, updated={updated}, removed={removed}"
@@ -622,6 +650,22 @@ const LOG_MESSAGES: Record<string, Record<string, string>> = {
   'admin.read_dev_failed': {
     zh: "读取开发文件失败",
     en: "Failed to read dev file"
+  },
+  'admin.clear_memory_done': {
+    zh: "已清空内存缓存（搜索缓存 + 元数据缓存），未触及文件缓存",
+    en: "In-memory caches (search + metadata) cleared; file cache untouched"
+  },
+  'admin.clear_memory_failed': {
+    zh: "清空内存缓存失败",
+    en: "Failed to clear in-memory caches"
+  },
+  'admin.reset_request_counts_done': {
+    zh: "已重置 TTML 请求计数",
+    en: "TTML request counts reset"
+  },
+  'admin.reset_request_counts_failed': {
+    zh: "重置 TTML 请求计数失败",
+    en: "Failed to reset TTML request counts"
   },
   'localcache.init_skipped': {
     zh: "本地缓存初始化跳过（Edge Runtime 预期行为）: {message}",

@@ -250,6 +250,18 @@ const ui = {
       toggle.setAttribute('aria-checked', 'false');
     }
   },
+
+  updateInactiveCleanupUI(enabled) {
+    const toggle = document.getElementById('inactiveCleanupSwitch');
+    if (!toggle) return;
+    if (enabled) {
+      toggle.classList.add('toggle--active');
+      toggle.setAttribute('aria-checked', 'true');
+    } else {
+      toggle.classList.remove('toggle--active');
+      toggle.setAttribute('aria-checked', 'false');
+    }
+  },
   
   switchTab(tabId) {
     document.querySelectorAll('.tab').forEach(tab => {

@@ -1,5 +1,7 @@
 const app = {
   devModeEnabled: false,
+  inactiveCleanupEnabled: true,
+  inactiveDaysThreshold: 14,
   selectedFile: null,
   devSelectedFile: null,
   currentTheme: 'light',
@@ -68,6 +70,9 @@ const app = {
     this.setupRebuildMetaButton();
     this.setupUpdateRemoteButton();
     this.setupRebuildFromIdsButton();
+    this.setupClearMemoryCacheButton();
+    this.setupResetRequestCountsButton();
+    this.setupInactiveCleanupToggle();
     
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && ui.modalOverlay.classList.contains('modal-overlay--active')) {
@@ -155,6 +160,15 @@ const app = {
       const data = await api.getStatus();
       this.devModeEnabled = data.devModeEnabled;
       ui.updateDevModeUI(this.devModeEnabled);
+      if (typeof data.inactiveCleanupEnabled === 'boolean') {
+        this.inactiveCleanupEnabled = data.inactiveCleanupEnabled;
+        ui.updateInactiveCleanupUI(this.inactiveCleanupEnabled);
+      }
+      if (typeof data.inactiveDaysThreshold === 'number') {
+        this.inactiveDaysThreshold = data.inactiveDaysThreshold;
+        const hint = document.getElementById('inactiveCleanupDaysHint');
+        if (hint) hint.textContent = String(this.inactiveDaysThreshold);
+      }
     } catch (err) {
       ui.showToast(i18n.t('error.fetchFailed'), 'error');
     }
@@ -369,6 +383,50 @@ const app = {
     }
   },
 
+  setupClearMemoryCacheButton() {
+    const btn = document.getElementById('clearMemoryCacheBtn');
+    if (btn) {
+      btn.addEventListener('click', () => this.clearMemoryCache());
+    }
+  },
+
+  setupResetRequestCountsButton() {
+    const btn = document.getElementById('resetRequestCountsBtn');
+    if (btn) {
+      btn.addEventListener('click', () => this.confirmResetRequestCounts());
+    }
+  },
+
+  setupInactiveCleanupToggle() {
+    const toggle = document.getElementById('inactiveCleanupSwitch');
+    if (!toggle) return;
+    toggle.addEventListener('click', () => this.toggleInactiveCleanup());
+    toggle.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        this.toggleInactiveCleanup();
+      }
+    });
+  },
+
+  async toggleInactiveCleanup() {
+    try {
+      const data = await api.toggleInactiveCleanup(!this.inactiveCleanupEnabled);
+      if (!data.success) throw new Error(data.error || 'failed');
+      this.inactiveCleanupEnabled = data.inactiveCleanupEnabled;
+      ui.updateInactiveCleanupUI(this.inactiveCleanupEnabled);
+      const days = data.inactiveDaysThreshold ?? this.inactiveDaysThreshold;
+      ui.showToast(
+        this.inactiveCleanupEnabled
+          ? i18n.t('settings.inactiveCleanupEnabled').replace('{days}', days)
+          : i18n.t('settings.inactiveCleanupDisabled'),
+        'success'
+      );
+    } catch (err) {
+      ui.showToast(i18n.t('error.networkError'), 'error');
+    }
+  },
+
   async rebuildMeta() {
     const btn = document.getElementById('rebuildMetaBtn');
     const resultEl = document.getElementById('rebuildMetaResult');
@@ -557,6 +615,73 @@ const app = {
     } finally {
       btn.disabled = false;
       btn.textContent = '🔧 从 ncm-ids.json 重构';
+    }
+  },
+
+  async clearMemoryCache() {
+    const btn = document.getElementById('clearMemoryCacheBtn');
+    const resultEl = document.getElementById('clearMemoryCacheResult');
+
+    if (!btn) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '⏳ <span data-i18n="common.loading">加载中...</span>';
+    if (resultEl) resultEl.hidden = true;
+
+    try {
+      const data = await api.clearMemoryCache();
+      if (data.success) {
+        if (resultEl) {
+          resultEl.textContent = i18n.t('settings.clearMemoryCacheSuccess');
+          resultEl.hidden = false;
+        }
+        ui.showToast(i18n.t('settings.clearMemoryCacheSuccess'), 'success');
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (err) {
+      ui.showToast(err.message || i18n.t('settings.clearMemoryCacheFailed'), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '🔃 <span data-i18n="settings.clearMemoryCache">' + i18n.t('settings.clearMemoryCache') + '</span>';
+    }
+  },
+
+  confirmResetRequestCounts() {
+    ui.showModal(
+      i18n.t('settings.resetRequestCountsConfirmTitle'),
+      i18n.t('settings.resetRequestCountsConfirmMsg'),
+      '🧨',
+      () => this.resetRequestCounts()
+    );
+  },
+
+  async resetRequestCounts() {
+    const btn = document.getElementById('resetRequestCountsBtn');
+    const resultEl = document.getElementById('resetRequestCountsResult');
+
+    if (!btn) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '⏳ <span data-i18n="common.loading">加载中...</span>';
+    if (resultEl) resultEl.hidden = true;
+
+    try {
+      const data = await api.resetRequestCounts();
+      if (data.success) {
+        if (resultEl) {
+          resultEl.textContent = i18n.t('settings.resetRequestCountsSuccess');
+          resultEl.hidden = false;
+        }
+        ui.showToast(i18n.t('settings.resetRequestCountsSuccess'), 'success');
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (err) {
+      ui.showToast(err.message || i18n.t('settings.resetRequestCountsFailed'), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '🧨 <span data-i18n="settings.resetRequestCounts">' + i18n.t('settings.resetRequestCounts') + '</span>';
     }
   }
 };

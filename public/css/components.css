@@ -1065,3 +1065,35 @@
   letter-spacing: 0.05em;
   font-family: var(--font-display);
 }
+
+.settings-section--danger {
+  margin-top: var(--space-6);
+  padding: var(--space-5);
+  background: rgba(220, 53, 69, 0.06);
+  border: var(--border-thick) dashed rgba(220, 53, 69, 0.5);
+  border-radius: 4px;
+}
+
+.settings-section--danger .settings-section__title {
+  color: #b3261e;
+}
+
+.settings-section__sub {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--border-thin) dashed rgba(220, 53, 69, 0.3);
+}
+
+.settings-section__sub:first-of-type {
+  margin-top: var(--space-3);
+  padding-top: 0;
+  border-top: none;
+}
+
+.settings-section__subtitle {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--font-bold);
+  margin-bottom: var(--space-2);
+  color: var(--color-text);
+}
